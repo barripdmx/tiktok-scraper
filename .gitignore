@@ -1,0 +1,48 @@
+# ── Datos de investigación (no versionar, pero subir carpetas vacías) ──────────
+# Las carpetas data/ y outputs/ se suben al repo, pero ignoramos su contenido
+data/*
+outputs/*
+!data/.gitkeep
+!outputs/.gitkeep
+
+# ── Credenciales y configuración sensible ─────────────────────────────────────
+config/.env
+config/old_good.env
+user.env
+*.env
+tiktokdatauploader-*.json
+cookies.json
+cookies_backup.json
+headers.json
+
+# ── Playwright / Chromium ──────────────────────────────────────────────────────
+playwright_auth/
+tiktok_profile/
+tiktok_profile_*/
+drivers/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── Logs y temporales ─────────────────────────────────────────────────────────
+*.log
+logs/
+temp_*.csv
+temp_*.json
+
+# ── Archivos de sistema ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/

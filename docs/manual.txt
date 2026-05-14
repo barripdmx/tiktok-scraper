@@ -1,0 +1,899 @@
+MANUAL DEL PROYECTO TIKTOK
+==========================
+
+1. RESUMEN GENERAL
+------------------
+Este proyecto es un toolkit de scraping, analisis y visualizacion para TikTok.
+Su objetivo es:
+
+- guardar una sesion valida de TikTok;
+- extraer videos de una cuenta o de un termino/hashtag;
+- extraer comentarios de esos videos;
+- analizar publicaciones y comentarios;
+- clasificar sentimiento;
+- enriquecer cuentas con fecha de creacion;
+- generar informes HTML y grafos para Gephi.
+
+La entrada y salida principal del sistema son archivos CSV y JSON.
+
+
+2. ESTRUCTURA DEL PROYECTO
+--------------------------
+Raiz del proyecto:
+
+- menu.py
+  Lanzador principal con menu por fases.
+- requirements.txt
+  Dependencias de Python.
+- README.md
+  Resumen basico del proyecto.
+
+Carpetas importantes:
+
+- src/scrapers
+  Scripts que descargan datos de TikTok.
+- src/analysis
+  Scripts que procesan y analizan CSVs.
+- src/visualization
+  Scripts que convierten resultados en HTML o GEXF.
+- src/utils
+  Utilidades compartidas y enriquecimiento de cuentas.
+- data
+  Salida principal de scrapers: cookies, logs, CSV y JSON.
+- outputs/graphics
+  Graficas, informes HTML y resultados analiticos.
+- drivers
+  Perfiles persistentes de Chromium/Playwright.
+- config
+  Variables de entorno como claves API.
+- tests
+  Pruebas auxiliares.
+- archive
+  Scripts antiguos o experimentales; no forman parte del flujo principal.
+
+
+3. FLUJO DE TRABAJO RECOMENDADO
+-------------------------------
+Flujo normal del programa:
+
+1. Guardar sesion.
+2. Extraer videos.
+3. Extraer comentarios.
+4. Analizar publicaciones o comentarios.
+5. Clasificar sentimiento si hace falta.
+6. Enriquecer cuentas con fecha de creacion.
+7. Graficar fechas de creacion o generar informe HTML.
+8. Exportar GEXF para Gephi si se quiere analizar red.
+
+Encadenado tipico:
+
+- cuenta TikTok -> CSV de videos
+- CSV de videos -> CSV de comentarios
+- CSV de comentarios -> graficas / sentimiento / cuentas dominantes
+- CSV de cuentas dominantes -> CSV enriquecido con fecha de creacion
+- CSV enriquecido -> graficas de fechas de creacion
+
+
+4. MENU PRINCIPAL
+-----------------
+Archivo: menu.py
+
+Este archivo es la puerta de entrada interactiva del proyecto.
+
+Funciones:
+
+- clear_screen()
+  Limpia la consola.
+- run_script(path)
+  Ejecuta otro script Python usando el mismo interprete actual.
+- main()
+  Muestra el menu y redirige cada opcion al script correspondiente.
+
+Opciones del menu:
+
+- 0 -> src/scrapers/1-guardar_sesion.py
+- 1 -> src/scrapers/1_tiktok_scraper_user.py
+- 2 -> src/scrapers/2_tiktok_scraper_hastag_api.py
+- 3 -> src/scrapers/3_tiktok_scraper_comentarios_mobile.py
+- 4 -> src/analysis/analitica_publicaciones.py
+- 5 -> src/analysis/analitica_comentarios.py
+- 6 -> src/analysis/analizar_sentimiento_gemini.py
+- 7 -> src/analysis/comparativa_usuarios.py
+- 8 -> src/visualization/generar_informe_html.py
+- 9 -> src/visualization/crear_gexf.py
+- 10 -> src/utils/enriquecer_csv_fechas_creacion.py
+- 11 -> abre outputs/graphics
+- 12 -> lista archivos de la raiz
+
+Importante:
+El menu no contiene logica de negocio compleja. Solo actua como lanzador.
+
+
+5. FASE 0 - AUTENTICACION
+-------------------------
+Archivo: src/scrapers/1-guardar_sesion.py
+
+Objetivo:
+Abrir TikTok en un navegador real, permitir login manual y guardar la sesion.
+
+Funcionamiento:
+
+1. Calcula rutas base del proyecto.
+2. Crea drivers/playwright_auth si no existe.
+3. Lanza Chromium con Playwright en modo visible.
+4. Abre https://www.tiktok.com/login
+5. Espera a que el usuario inicie sesion manualmente.
+6. Guarda el storage state en:
+   drivers/playwright_auth/tiktok.json
+7. Extrae cookies y las exporta en:
+   data/tiktok_cookies.json
+
+Por que es importante:
+
+- los scrapers reutilizan estas cookies;
+- reduce bloqueos;
+- evita tener que loguearse en cada ejecucion.
+
+
+6. UTILIDADES COMPARTIDAS
+-------------------------
+Archivo: src/utils/tiktok_utils.py
+
+Es el modulo comun reutilizado por los scrapers.
+
+Bloques principales:
+
+6.1. Fechas desde video_id
+- get_date_from_video_id(video_id)
+  Obtiene fecha aproximada usando el timestamp embebido en el ID.
+- estimate_date_from_id_simple(video_id)
+  Fallback aproximado si el metodo exacto falla.
+- is_likely_in_date_range(...)
+  Filtro previo con margen.
+- is_in_date_range(...)
+  Filtro exacto por fecha.
+
+Uso:
+Permite descartar videos fuera de rango sin visitar todos.
+
+6.2. Manejo de URLs
+- normalize_tiktok_url(url)
+- extract_video_id_from_url(url)
+- extract_username_from_url(url)
+- is_valid_video_url(url)
+
+Uso:
+Normaliza enlaces y extrae identificadores reutilizados en todo el sistema.
+
+6.3. Conversion de metricas
+- parse_count(text)
+
+Uso:
+Convierte textos como 1.2M o 500K a enteros.
+
+6.4. Helpers Playwright
+- human_scroll(page)
+- accept_cookies_banner(page)
+- handle_verification(page)
+- detect_end_of_results(page)
+
+Uso:
+Reducen problemas de scraping, banners y verificaciones.
+
+6.5. Contexto persistente y cookies
+- load_cookies(context, cookies_path)
+- save_cookies(context, cookies_path)
+- ensure_context(...)
+
+Uso:
+Lanza Chromium persistente con perfil, cookies y algunos ajustes antibot.
+
+6.6. Recoleccion de URLs
+- collect_video_urls(...)
+
+Uso:
+Hace scroll en paginas de busqueda/hashtag y devuelve URLs de videos.
+
+
+7. SCRAPER DE USUARIO
+---------------------
+Archivo: src/scrapers/1_tiktok_scraper_user.py
+
+Objetivo:
+Descargar todos los videos de una cuenta concreta.
+
+Salida:
+
+- data/user_<usuario>_videos.csv
+- data/user_<usuario>_videos.json
+- data/scraper_user.log
+
+Funcionamiento interno:
+
+7.1. Configuracion
+Define:
+
+- carpeta data;
+- cookies;
+- perfil Playwright;
+- modo headless;
+- numero maximo de scrolls;
+- pausas y logging.
+
+7.2. ensure_context()
+Wrapper sobre la utilidad compartida para usar el perfil y cookies de este scraper.
+
+7.3. collect_user_videos(context, username)
+Hace el trabajo de descubrimiento:
+
+- abre el perfil;
+- intenta extraer datos del usuario desde el JSON embebido;
+- obtiene followers, likes, bio, verificacion y fecha de creacion de cuenta;
+- entra en la pestana de videos;
+- hace scroll y recoge URLs validas del perfil;
+- se detiene cuando deja de encontrar videos nuevos.
+
+7.4. extract_metadata(context, url, username)
+Abre cada video y extrae:
+
+- video_id y URL;
+- descripcion;
+- fecha del video;
+- duracion y dimensiones;
+- likes, vistas, compartidos, comentarios y guardados;
+- datos del autor;
+- musica;
+- hashtags;
+- menciones.
+
+Incluye un fallback HTML por si el JSON embebido no trae metricas.
+
+7.5. Filtro por fechas
+El script permite:
+
+- un prefiltro por ID del video;
+- una verificacion posterior con la fecha real del video si esta disponible.
+
+7.6. save_results()
+Guarda un JSON rico y un CSV estandarizado.
+
+Resumen:
+Es el scraper base para estudios de una cuenta concreta.
+
+
+8. SCRAPER DE HASHTAG / TERMINO POR API
+---------------------------------------
+Archivo: src/scrapers/2_tiktok_scraper_hastag_api.py
+
+Objetivo:
+Buscar videos por termino o hashtag usando llamadas a la API interna de TikTok
+ejecutadas desde el navegador.
+
+Ventaja principal:
+Es mucho mas rapido que el scraping por scroll del DOM.
+
+Salida:
+
+- data/<label>_videos_api.csv
+- data/<label>_videos_api.json
+- data/scraper_hastag_api.log
+
+Funcionamiento interno:
+
+8.1. api_fetch(page, url)
+Ejecuta fetch() dentro del navegador. Asi aprovecha firma, cookies y sesion
+del propio contexto web.
+
+8.2. get_challenge_id(page, tag)
+Abre /tag/<tag> y extrae el challengeID desde el JSON embebido.
+
+8.3. collect_from_search(page, keyword)
+Pagina los resultados de busqueda general.
+
+8.4. collect_from_challenge(page, challenge_id, tag)
+Pagina la API de hashtag/challenge.
+
+8.5. item_to_row(item, video_url)
+Convierte la respuesta de API al formato CSV del proyecto.
+
+8.6. matches_strict(query_terms, desc, hashtags_str)
+Filtro estricto literal para asegurar que el termino realmente aparece.
+
+8.7. Post-procesado final
+Aplica:
+
+- deduplicacion por video;
+- filtro por fecha;
+- filtro estricto;
+- guardado final en CSV/JSON.
+
+Uso recomendado:
+Cuando se quiere cobertura rapida de un tema, palabra o hashtag.
+
+
+9. SCRAPER DE COMENTARIOS CONCURRENTE
+-------------------------------------
+Archivo: src/scrapers/3_tiktok_scraper_comentarios_mobile.py
+
+Objetivo:
+Extraer comentarios de muchos videos de forma concurrente.
+
+Entrada:
+Un CSV de videos con columna video_url.
+
+Salida:
+
+- data/<base>_comentarios_mobile.csv
+- data/<base>_mobile_checkpoint.json
+- data/logs/comentarios_mobile_<timestamp>.log
+
+Caracteristicas clave:
+
+- varios workers concurrentes;
+- un contexto Playwright por worker;
+- checkpoint de videos ya procesados;
+- escritura segura en CSV con asyncio.Lock;
+- recuperacion parcial si se interrumpe.
+
+Funcionamiento interno:
+
+9.1. Utilidades y logging
+- _TeeIO
+  Duplica la salida a consola y a log.
+- init_logging() / close_logging()
+  Preparan el log de la sesion.
+- seleccionar_csv()
+  Pide el CSV de entrada.
+- cargar_urls_desde_csv()
+  Extrae las URLs de video desde el CSV.
+
+9.2. create_context(pw, worker_id)
+Cada worker usa su propio perfil Chromium para evitar bloqueos entre procesos.
+
+9.3. extract_comments(context, url, worker_id, limit)
+Es el corazon del scraper:
+
+- abre el video;
+- abre el panel de comentarios;
+- escucha respuestas de red a /api/comment/list/;
+- hace scroll continuo del panel;
+- expande replies cuando puede;
+- recoge comentarios y replies interceptados;
+- convierte todo al formato de salida.
+
+Campos generados:
+
+- video_id
+- video_url
+- username
+- comment_id
+- fecha
+- autor_nombre
+- autor_handle
+- texto
+- likes
+- aweme_id_api
+- is_reply
+- parent_comment_id
+
+9.4. worker(...)
+Toma videos de una cola, llama a extract_comments, guarda resultados y actualiza
+el checkpoint.
+
+9.5. main()
+Coordina:
+
+- lectura del CSV;
+- reanudacion desde checkpoint;
+- numero de videos a procesar;
+- limite de comentarios por video;
+- numero de workers;
+- resumen final de cobertura.
+
+Importante:
+El propio script avisa que la cobertura no siempre es total en videos muy grandes.
+
+
+10. ANALITICA DE PUBLICACIONES
+------------------------------
+Archivo: src/analysis/analitica_publicaciones.py
+
+Objetivo:
+Analizar un CSV de videos y generar graficas de rendimiento.
+
+Entrada:
+CSV de publicaciones generado por un scraper de videos.
+
+Salida:
+Carpeta:
+
+- outputs/graphics/<proyecto>/publicaciones
+
+Archivos generados:
+
+- nube de palabras;
+- nube de hashtags;
+- nube de emoticonos;
+- evolucion de vistas;
+- publicaciones por mes;
+- publicaciones por dia de la semana;
+- publicaciones por hora;
+- heatmap de actividad;
+- timeline acumulado;
+- TXT con mejores videos.
+
+Partes internas:
+
+10.1. Configuracion
+Define rutas de salida, logo, dpi y traductor de colores.
+
+10.2. Utilidades
+- create_output_folder()
+- save_plot()
+- apply_estilo_periodistico()
+- get_file_path()
+- ask_string()
+- validate_color()
+- make_color_func()
+- clean_text()
+- extract_emojis()
+- _add_watermark()
+- _get_account()
+
+10.3. Graficas principales
+- graf_nube_palabras()
+- graf_nube_hashtags()
+- graf_nube_emoticonos()
+- graf_evolucion_vistas()
+- graf_publicaciones_por_mes()
+- graf_publicaciones_por_dia()
+- graf_publicaciones_por_hora()
+- graf_heatmap()
+- graf_timeline()
+
+10.4. main()
+Lee el CSV, pregunta colores, genera todas las visualizaciones y crea un TXT
+con los mejores videos por metrica.
+
+Uso:
+Es el analizador principal para datasets de publicaciones.
+
+
+11. ANALITICA DE COMENTARIOS
+----------------------------
+Archivo: src/analysis/analitica_comentarios.py
+
+Objetivo:
+Analizar comentarios, actividad de la comunidad y sentimiento local con IA
+en español mediante pysentimiento.
+
+Entrada:
+CSV de comentarios.
+
+Salidas:
+
+- outputs/graphics/<proyecto>/comentarios
+- outputs/graphics/<proyecto>/polaridad_ia
+
+Bloques funcionales:
+
+11.1. Configuracion y rutas
+Separa salida de comentarios generales y salida de polaridad.
+
+11.2. generar_nubes(df, ...)
+Genera:
+
+- nube de palabras general;
+- nube de emoticonos general.
+
+11.3. generar_analisis_comunidad(df, ...)
+Genera:
+
+- top comentaristas activos;
+- top comentaristas por likes;
+- TXT con mejores comentarios;
+- distribucion de cuentas por numero de comentarios;
+- curva de concentracion de comentarios por cuenta.
+
+11.4. generar_analisis_temporal(df, ...)
+Genera:
+
+- comentarios por mes;
+- heatmap de actividad por dia y hora.
+
+11.5. analizar_sentimiento_ia(df)
+Usa pysentimiento con un modelo RoBERTa en espanol para clasificar cada
+comentario como:
+
+- positivo
+- negativo
+- neutro
+
+11.6. Salidas de sentimiento
+- generar_grafica_sentimiento()
+- generar_top_emojis()
+- generar_evolucion_sentimiento_acumulada()
+- generar_nubes_sentimiento()
+
+11.7. Exportaciones por cuentas
+- exportar_cuentas_por_sentimiento()
+  Una cuenta puede aparecer en varios CSV si comenta con varios tonos.
+- exportar_cuentas_sentimiento_dominante()
+  Cada cuenta se clasifica con un unico sentimiento dominante o empate.
+
+Archivos clave generados:
+
+- <file>_cuentas_positivo.csv
+- <file>_cuentas_neutro.csv
+- <file>_cuentas_negativo.csv
+- <file>_cuentas_sentimiento_dominante.csv
+- <file>_cuentas_dominante_positivo.csv
+- <file>_cuentas_dominante_neutro.csv
+- <file>_cuentas_dominante_negativo.csv
+- <file>_cuentas_dominante_empate.csv
+
+11.8. main()
+Lee el CSV, filtra replies si existe is_reply, pregunta colores y ejecuta toda
+la cadena de analisis.
+
+Uso:
+Es el analizador principal para comentarios cuando se quiere exploracion
+completa del dataset.
+
+
+12. SENTIMIENTO CON GEMINI
+--------------------------
+Archivo: src/analysis/analizar_sentimiento_gemini.py
+
+Objetivo:
+Clasificar comentarios con Gemini en lotes y guardar un CSV reutilizable.
+
+Entrada:
+CSV de comentarios.
+
+Salida:
+
+- CSV original + sufijo _con_sentimiento_gemini.csv
+- checkpoint _gemini_checkpoint.json
+- graficas en outputs/graphics/<proyecto>/polaridad_ia
+
+Funcionamiento:
+
+12.1. Carga de API key
+Busca GEMINI_API_KEY en config/.env. Si no existe, la pide por ventana.
+
+12.2. clasificar_lote()
+Manda lotes de comentarios a Gemini y exige JSON con etiquetas POS/NEG/NEU.
+
+12.3. Reintentos y fallback
+Si hay errores 5xx:
+
+- usa backoff exponencial;
+- reintenta varias veces;
+- puede pasar de gemini-flash-lite-latest a gemini-2.5-flash.
+
+12.4. Checkpoint
+Guarda el avance para no perder lotes ya procesados.
+
+12.5. Graficas finales
+Genera:
+
+- distribucion de sentimiento;
+- evolucion acumulada;
+- top comentarios positivos y negativos;
+- top usuarios positivos y negativos.
+
+Uso:
+Conviene cuando se quiere una clasificacion externa con Gemini y conservar
+el resultado en CSV para futuros procesos.
+
+
+13. COMPARATIVA ENTRE CUENTAS
+-----------------------------
+Archivo: src/analysis/comparativa_usuarios.py
+
+Objetivo:
+Comparar el comportamiento de los mismos usuarios comentando en varias cuentas.
+
+Funcionamiento:
+
+1. Pide varios CSV de comentarios.
+2. Deduce la cuenta destino a partir del nombre del archivo.
+3. Fusiona todos los comentarios.
+4. Aplica un sentimiento lexico sencillo.
+5. Calcula sentimiento neto por usuario y cuenta:
+   positivos - negativos
+6. Escoge los usuarios mas polarizados/activos.
+7. Genera una grafica comparativa agrupada.
+
+Salida:
+
+- outputs/graphics/comparativa_sentimiento_usuarios.png
+
+Uso:
+Sirve para detectar usuarios muy alineados o muy criticos segun la cuenta.
+
+
+14. INFORME HTML
+----------------
+Archivo: src/visualization/generar_informe_html.py
+
+Objetivo:
+Crear un informe HTML autocontenido y offline a partir de un CSV de publicaciones
+y de las graficas asociadas.
+
+Entrada:
+CSV de videos/publicaciones.
+
+Salida:
+
+- outputs/graphics/<file_id>_informe.html
+
+Funcionamiento por bloques:
+
+14.1. Metadatos y titulo
+- fecha_es()
+- derive_title()
+- get_report_title()
+
+14.2. Localizacion de imagenes
+- build_file_id_candidates()
+- resolve_image_path()
+- get_exact_image_path()
+
+Busca graficas ya generadas, incluso con nombres alternativos parecidos.
+
+14.3. Generacion automatica de imagenes
+- ensure_report_images(...)
+
+Si faltan graficas basicas, intenta generarlas.
+
+14.4. Analisis auxiliares para el HTML
+- build_plot_df()
+- generate_wordcloud_images()
+- generate_temporal_images()
+- build_top_videos()
+- build_extra_insights()
+
+14.5. generate_html(...)
+Construye el HTML completo:
+
+- cabecera;
+- KPIs;
+- tabla de top videos;
+- bloques de imagenes;
+- insights extra;
+- CSS embebido.
+
+14.6. main()
+Lee el CSV, deduplica por video_id, asegura las imagenes necesarias, construye
+el HTML y lo guarda.
+
+Uso:
+Es el modulo final para entregar un reporte visual navegable.
+
+
+15. GRAFOS GEXF
+---------------
+Hay dos scripts relacionados con redes.
+
+15.1. crear_gexf.py
+Objetivo:
+Crear una red simple comentarista -> autor del video.
+
+Entrada:
+Uno o varios CSV de comentarios.
+
+Proceso:
+
+- carga filas;
+- ignora autocomentarios;
+- cuenta cuantas veces un autor_handle comenta a un username;
+- construye nodos con estadisticas;
+- guarda un GEXF con peso por numero de comentarios.
+
+Salida:
+Archivo .gexf en el mismo directorio del primer CSV.
+
+Uso:
+Es la opcion del menu para abrir luego en Gephi.
+
+15.2. grafo_comentarios.py
+Objetivo:
+Construir un grafo mas fino donde:
+
+- comentario directo -> apunta al autor del video;
+- reply -> apunta al autor del comentario padre.
+
+Ademas añade:
+
+- peso;
+- videos_unicos;
+- primer comentario;
+- ultimo comentario;
+- rol del nodo: autor_video, comentarista o ambos.
+
+Uso:
+Es mas detallado que crear_gexf.py, aunque no esta conectado directamente al menu.
+
+
+16. FECHAS DE CREACION DE CUENTAS
+---------------------------------
+Esta parte se divide en tres scripts.
+
+16.1. src/utils/extraer_fechas_creacion_cuentas.py
+Objetivo:
+Consultar perfiles de TikTok y extraer fecha de creacion de cuenta.
+
+Como funciona:
+
+- normaliza usernames;
+- descarga la pagina del perfil;
+- extrae el JSON de hidratacion;
+- intenta leer user.createTime;
+- si no existe, estima desde user.id >> 32;
+- guarda CSV y JSON con metadatos de cuenta.
+
+Uso:
+Sirve para consultar un conjunto de cuentas manualmente.
+
+16.2. src/utils/enriquecer_csv_fechas_creacion.py
+Objetivo:
+Enriquecer un CSV grande usando cuentas unicas.
+
+Entrada:
+Un CSV con columna de handles, por defecto autor_handle.
+
+Como funciona:
+
+- extrae handles unicos;
+- carga un lookup parcial ya existente si lo hay;
+- consulta solo cuentas pendientes;
+- guarda incrementalmente el lookup;
+- fusiona el lookup con el CSV original;
+- genera un CSV enriquecido.
+
+Salidas:
+
+- <base>_lookup_fechas_creacion.csv
+- <base>_enriquecido_fechas_creacion.csv
+
+Uso:
+Es la opcion 10 del menu. Es el paso previo para estudiar antiguedad de cuentas.
+
+16.3. src/visualization/graficar_fechas_creacion_cuentas.py
+Objetivo:
+Graficar la distribucion temporal de creacion de cuentas.
+
+Entrada:
+Uno o varios CSV enriquecidos.
+
+Escenarios:
+
+- un solo CSV -> grafica simple por mes;
+- varios CSV de sentimientos -> barras apiladas, barras 100% y boxplot.
+
+Salidas:
+Carpeta fechas_creacion junto a los CSV de entrada.
+
+Graficas posibles:
+
+- fechas_creacion_por_mes.png
+- fechas_creacion_apilado.png
+- fechas_creacion_100pct.png
+- edad_cuenta_boxplot.png
+- resumen_fechas_creacion.csv
+
+Uso:
+Sirve para detectar si grupos de cuentas parecen recientes o coordinados.
+
+
+17. ARCHIVOS SECUNDARIOS Y LEGACY
+---------------------------------
+Scripts no conectados al flujo principal del menu pero presentes:
+
+- src/analysis/analitica_redes.py
+  Analisis extra orientado a redes o resumenes de KPIs.
+- src/analysis/analizar_sentimiento_groq.py
+  Variante de clasificacion de sentimiento usando Groq.
+- src/scrapers/1_tiktok_scraper_hastag.py
+  Version antigua basada en scroll DOM.
+- src/scrapers/1_tiktok_scraper_hastag_v2.py
+  Variante antigua/intermedia del scraper por hashtag.
+- src/scrapers/1_tiktok_scraper_comentarios.py
+  Variante previa del scraper de comentarios.
+- src/scrapers/2_tiktok_scraper_comentarios_api.py
+  Variante API/interceptacion anterior a la concurrente.
+- src/analysis/_run_nube_sanchezcastejon.py
+  Script puntual de apoyo.
+- archive/*
+  Material historico, pruebas o prototipos.
+
+Estos archivos ayudan a entender la evolucion del proyecto, pero no son el
+camino principal de uso actual.
+
+
+18. DEPENDENCIAS LOGICAS
+------------------------
+Dependencias tecnicas mas importantes del proyecto:
+
+- playwright
+  Navegacion y scraping.
+- pandas
+  Carga y manipulacion de CSV.
+- matplotlib
+  Graficas.
+- wordcloud
+  Nubes de palabras y emojis.
+- emoji
+  Tratamiento de emojis.
+- tkinter
+  Dialogos de archivos y preguntas simples.
+- networkx
+  Exportacion a GEXF.
+- pysentimiento
+  Sentimiento local en espanol.
+- google-genai
+  Sentimiento con Gemini.
+- requests
+  Consultas HTTP directas.
+
+
+19. ENTRADAS Y SALIDAS MAS IMPORTANTES
+--------------------------------------
+Entradas frecuentes:
+
+- CSV de videos con columnas como:
+  video_id, video_url, video_desc, video_fecha, video_vistas...
+- CSV de comentarios con columnas como:
+  video_id, video_url, username, comment_id, fecha, autor_handle, texto, likes...
+
+Salidas frecuentes:
+
+- data/*.csv
+- data/*.json
+- data/logs/*.log
+- outputs/graphics/<proyecto>/publicaciones/*.png
+- outputs/graphics/<proyecto>/comentarios/*.png
+- outputs/graphics/<proyecto>/polaridad_ia/*.png y *.csv
+- outputs/graphics/*_informe.html
+- *.gexf
+
+
+20. RECOMENDACIONES DE USO
+--------------------------
+- Ejecutar primero 1-guardar_sesion.py.
+- No mezclar CSVs con estructuras distintas dentro del mismo analisis.
+- Para comentarios masivos, usar el scraper concurrente del menu.
+- Para informes HTML, generar antes la analitica de publicaciones.
+- Para estudiar bots o coordinacion:
+  1. analitica_comentarios
+  2. exportar cuentas dominantes
+  3. enriquecer fechas de creacion
+  4. graficar fechas de creacion
+- Revisar data/logs cuando un scraping falle o se quede corto.
+
+
+21. RESUMEN FINAL DEL FUNCIONAMIENTO
+------------------------------------
+El programa completo se comporta como una tuberia de datos:
+
+- primero autentica y prepara sesion;
+- despues recolecta videos o comentarios;
+- luego transforma esos datos en CSV estandarizados;
+- a partir de esos CSV genera analisis estadisticos, sentimiento y visualizaciones;
+- finalmente permite exportar resultados en formatos de consumo humano
+  (PNG, TXT, HTML) o de analisis de red (GEXF).
+
+La parte mas importante del flujo actual es:
+
+- menu.py
+- 1-guardar_sesion.py
+- 1_tiktok_scraper_user.py o 2_tiktok_scraper_hastag_api.py
+- 3_tiktok_scraper_comentarios_mobile.py
+- analitica_publicaciones.py / analitica_comentarios.py
+- analizar_sentimiento_gemini.py
+- enriquecer_csv_fechas_creacion.py
+- generar_informe_html.py
+- crear_gexf.py
+

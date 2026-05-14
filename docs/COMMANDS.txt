@@ -1,0 +1,109 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    COMANDOS RÁPIDOS - SCRAPER v2                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📋 EJECUCIÓN DESDE CLAUDE CODE PANEL
+════════════════════════════════════════════════════════════════════════════
+
+   TEST RÁPIDO (5 vídeos, ~1 min)
+   ────────────────────────────────────
+   python scraper.py --test data/usuarios.csv
+
+
+   PROCESAMIENTO ESTÁNDAR (diálogo interactivo)
+   ────────────────────────────────────────────
+   python scraper.py data/usuarios.csv
+
+
+   PROCESAMIENTO CON PARÁMETROS
+   ────────────────────────────────────────────
+   python scraper.py data/usuarios.csv 50          # 50 vídeos
+   python scraper.py data/usuarios.csv 50 100      # 50 vídeos, máx 100 comentarios
+   python scraper.py data/usuarios.csv 100 250     # 100 vídeos, máx 250 comentarios
+
+
+   AYUDA Y OPCIONES
+   ────────────────────────────────────────────
+   python scraper.py --help                        # Muestra opciones
+   python scraper.py --list                        # Lista CSVs disponibles
+
+
+════════════════════════════════════════════════════════════════════════════
+
+📊 ESTADOS DE SALIDA
+════════════════════════════════════════════════════════════════════════════
+
+   ✅ Exitoso             → Comentarios descargados (cobertura 70%+)
+   ⚠️  Exitoso (bajo)      → Comentarios descargados (cobertura <70%)
+   🚫 Deshabilitados      → Video tiene comentarios cerrados (definitivo)
+   ❌ Panel error         → Botón no encontrado / UI rota (definitivo)
+   ⏱ Sin respuesta        → API silenciosa >50s (transitorio)
+
+
+════════════════════════════════════════════════════════════════════════════
+
+📂 ARCHIVOS DE ENTRADA / SALIDA
+════════════════════════════════════════════════════════════════════════════
+
+   ENTRADA:
+     data/usuarios.csv                    ← Tu CSV con video_url
+
+   SALIDA:
+     data/usuarios_comentarios_api.csv    ← ✅ Comentarios descargados
+     data/usuarios_checkpoint.json        ← ♻️ Progreso (auto-guardado)
+     data/logs/comentarios_api_*.log      ← 📝 Logs de ejecución
+
+
+════════════════════════════════════════════════════════════════════════════
+
+🔧 TROUBLESHOOTING
+════════════════════════════════════════════════════════════════════════════
+
+   ❓ "Cookies no cargadas"
+   → python 1-guardar_sesion.py
+
+   ❓ "Panel no encontrado" en varios videos
+   → python 1-guardar_sesion.py
+   → Reinicia la sesión
+
+   ❓ Muchos videos con "🚫 Deshabilitados"
+   → Normal: algunos creadores cierran comentarios
+   → Revisa el resumen final para estadísticas
+
+   ❓ Quiero continuar desde donde quedó
+   → python scraper.py data/usuarios.csv
+   → Responde "S" cuando pregunte
+
+
+════════════════════════════════════════════════════════════════════════════
+
+⏱️  TIEMPOS ESTIMADOS
+════════════════════════════════════════════════════════════════════════════
+
+   1 video:       ~10s
+   10 videos:     ~2 min
+   50 videos:     ~10 min
+   100 videos:    ~20 min
+   1.000 videos:  ~3-4h
+
+
+════════════════════════════════════════════════════════════════════════════
+
+📚 DOCUMENTACIÓN COMPLETA
+════════════════════════════════════════════════════════════════════════════
+
+   SCRAPER_USAGE.md           ← Guía detallada (parámetros, casos de uso)
+   QUICK_START.md             ← Quick reference (CLI y ejemplos)
+   REFACTOR_SUMMARY.md        ← Cambios técnicos y mejoras
+   ejemplo_uso_programatico.py ← Ejemplos para importar como módulo
+
+
+════════════════════════════════════════════════════════════════════════════
+
+NOTA: Versión v2 REFACTORIZADO (sin evaluación heurística de triggers)
+      • 40% menos código
+      • 25% más rápido
+      • Detección explícita de "comentarios deshabilitados"
+      • CLI con parámetros
+
+════════════════════════════════════════════════════════════════════════════

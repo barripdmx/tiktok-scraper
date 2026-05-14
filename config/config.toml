@@ -1,0 +1,24 @@
+# config.toml — Configuración centralizada del proyecto TikTok scraper
+# Todos los scrapers leen este archivo; los valores aquí son los defaults.
+# Puedes sobrescribir cualquier clave por línea de comandos o variable de entorno.
+
+[paths]
+data_dir        = "data_tiktok"
+cookies_path    = "data_tiktok/tiktok_cookies.json"
+profile_dir     = "tiktok_profile"
+
+[browser]
+headless        = false
+block_media     = true
+# Cadena User-Agent. Actualizar cuando Chrome publique una versión mayor.
+user_agent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+
+[scraping]
+max_scroll      = 0          # 0 = sin límite
+scroll_pause    = [1.2, 2.0] # [min, max] segundos entre scrolls
+no_new_limit    = 3          # ciclos sin URLs nuevas antes de parar
+no_new_limit_v2 = 6          # igual pero para el scraper v2 (búsqueda estricta)
+strict_literal  = true       # v2: filtrar por coincidencia exacta
+
+[filters]
+date_margin_days = 3  # margen en días para el prefiltro por ID (is_likely_in_date_range)
