@@ -151,10 +151,13 @@ def get_file_path(cli_csv: str = None) -> str:
         try:
             root = tk.Tk()
             root.withdraw()
+            root.attributes('-topmost', True)
             path = filedialog.askopenfilename(
                 title="Selecciona el CSV de publicaciones de TikTok",
                 filetypes=[("CSV Files", "*.csv")],
+                initialdir=os.path.join(BASE_DIR, "data"),
             )
+            root.destroy()
             return path
         except Exception:
             pass
@@ -168,11 +171,13 @@ def get_report_title(default_title: str, cli_titulo: str = None) -> str:
         try:
             root = tk.Tk()
             root.withdraw()
+            root.attributes('-topmost', True)
             report_title = simpledialog.askstring(
                 "Título del informe",
                 "Hashtag o término analizado\n(será el título principal del informe):",
                 initialvalue=default_title,
             )
+            root.destroy()
             if report_title and report_title.strip():
                 return report_title.strip()
             return default_title
