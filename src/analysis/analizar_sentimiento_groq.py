@@ -106,10 +106,14 @@ def analizar_sentimiento_groq(df, csv_file):
         print("   ❌ Error: GROQ_API_KEY no configurada en config/.env")
         return None
 
-    # Filtrar comentarios directos
-    df_filtered = df[df['is_reply'] == 0].reset_index(drop=True)
-    print(f"   Total comentarios: {len(df)}")
-    print(f"   Comentarios directos: {len(df_filtered)}")
+    # Filtrar comentarios directos (si la columna existe)
+    if 'is_reply' in df.columns:
+        df_filtered = df[df['is_reply'] == 0].reset_index(drop=True)
+        print(f"   Total comentarios: {len(df)}")
+        print(f"   Comentarios directos: {len(df_filtered)}")
+    else:
+        df_filtered = df.reset_index(drop=True)
+        print(f"   Total comentarios: {len(df_filtered)} (columna 'is_reply' no encontrada, se analizan todos)")
 
     if len(df_filtered) == 0:
         print("   ⚠️ No hay comentarios para analizar")
