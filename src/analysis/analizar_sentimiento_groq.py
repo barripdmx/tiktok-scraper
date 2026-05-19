@@ -18,7 +18,7 @@ OUTPUT_BASE = os.path.join(BASE_DIR, "outputs")
 load_dotenv(os.path.join(CONFIG_DIR, ".env"))
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "mixtral-8x7b-32768"  # Rápido y preciso
+GROQ_MODEL = "llama-3.3-70b-versatile"  # Reemplaza a mixtral (dado de baja en 2025)
 BATCH_SIZE = 50
 SLEEP_BETWEEN = 0.5
 
@@ -74,7 +74,15 @@ def clasificar_lote(client, textos):
         return etiquetas
 
     except Exception as e:
-        print(f"   Error: {e}")
+        err_str = str(e)
+        print(f"   Error: {err_str}")
+        # Error fatal: modelo dado de baja → lanzar excepción para detener el proceso
+        if "model_decommissioned" in err_str or "decommissioned" in err_str:
+            raise RuntimeError(
+                f"\n❌ MODELO DADO DE BAJA: {GROQ_MODEL}\n"
+                f"   Cambia GROQ_MODEL en el script o usa otro modelo.\n"
+                f"   Modelos disponibles en: https://console.groq.com/docs/models"
+            )
         return ["NEU"] * len(textos)
 
 
