@@ -144,9 +144,39 @@ def _parse_args():
     return parser.parse_args()
 
 
+def find_latest_videos_csv() -> str:
+    """Busca el CSV de videos más reciente en data/ como fallback."""
+    data_dir = os.path.join(BASE_DIR, "data")
+    if not os.path.exists(data_dir):
+        return ""
+    candidatos = []
+    for f in os.listdir(data_dir):
+        if f.endswith(".csv") and "comentarios" not in f:
+            full = os.path.join(data_dir, f)
+            candidatos.append((os.path.getmtime(full), full))
+    if candidatos:
+        candidatos.sort(reverse=True)
+        path = candidatos[0][1]
+        print(f"   📋 CSV detectado automáticamente: {os.path.basename(path)}")
+        return path
+    # Si no hay CSV sin "comentarios", buscar cualquiera
+    for f in os.listdir(data_dir):
+        if f.endswith(".csv"):
+            full = os.path.join(data_dir, f)
+            candidatos.append((os.path.getmtime(full), full))
+    if candidatos:
+        candidatos.sort(reverse=True)
+        path = candidatos[0][1]
+        print(f"   📋 CSV detectado automáticamente: {os.path.basename(path)}")
+        return path
+    return ""
+
+
 def get_file_path(cli_csv: str = None) -> str:
     if cli_csv and os.path.exists(cli_csv):
         return cli_csv
+    print("📂 Abriendo selector de archivo...")
+    print("   (si no aparece, busca la ventana en la barra de tareas)")
     if _HAS_TK:
         try:
             root = tk.Tk()
@@ -158,10 +188,13 @@ def get_file_path(cli_csv: str = None) -> str:
                 initialdir=os.path.join(BASE_DIR, "data"),
             )
             root.destroy()
-            return path
+            if path:
+                return path
         except Exception:
             pass
-    return input("Ruta al CSV: ").strip()
+    # Fallback: buscar automáticamente el CSV más reciente
+    print("   ⚠️  Diálogo no disponible. Buscando CSV automáticamente...")
+    return find_latest_videos_csv()
 
 
 def get_report_title(default_title: str, cli_titulo: str = None) -> str:
@@ -183,7 +216,9 @@ def get_report_title(default_title: str, cli_titulo: str = None) -> str:
             return default_title
         except Exception:
             pass
-    val = input(f"Título del informe [{default_title}]: ").strip()
+    # Fallback: usar el título por defecto sin preguntar
+    print(f"   Título automático: '{default_title}' (cierra y usa --titulo para cambiarlo)")
+    val = default_title
     return val if val else default_title
 
 
