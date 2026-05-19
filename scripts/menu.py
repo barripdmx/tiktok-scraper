@@ -10,9 +10,16 @@ def run_script(path):
     print(f"\n🚀 Ejecutando: {os.path.basename(path)}...")
     print("-" * 50)
     try:
-        # Ejecutamos con el mismo intérprete de python actual
-        # Usamos el path completo para evitar errores de ruta
-        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), path))
+        # Ir al directorio raíz del proyecto (2 niveles arriba de scripts/)
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        script_path = os.path.abspath(os.path.join(project_root, path))
+
+        # Verificar que el archivo existe
+        if not os.path.exists(script_path):
+            print(f"❌ Archivo no encontrado: {script_path}")
+            input("\nPresiona Enter para volver al menú...")
+            return
+
         subprocess.run([sys.executable, script_path], check=True)
     except subprocess.CalledProcessError:
         print(f"\n❌ Error al ejecutar el script.")
@@ -80,12 +87,22 @@ Q.  ❌ Salir
         elif choice == '10':
             run_script("src/utils/enriquecer_csv_fechas_creacion.py")
         elif choice == '11':
-            path = os.path.join(os.getcwd(), "outputs", "graphics")
-            print(f"Carpeta de resultados: {path}")
-            if os.name == 'nt':
-                os.startfile(path)
+            # Ir a la carpeta outputs en el raíz del proyecto
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            path = os.path.join(project_root, "outputs")
+
+            if not os.path.exists(path):
+                print(f"⚠️ Carpeta no existe aún: {path}")
+                print("💡 Ejecuta un análisis primero para generar resultados")
             else:
-                subprocess.run(['open', path])
+                print(f"📂 Abriendo: {path}")
+                try:
+                    if os.name == 'nt':
+                        os.startfile(path)
+                    else:
+                        subprocess.run(['open', path])
+                except Exception as e:
+                    print(f"❌ No se pudo abrir: {e}")
             input("\nPresiona Enter para continuar...")
         elif choice == '12':
             os.system('dir' if os.name == 'nt' else 'ls -R')
