@@ -1,6 +1,7 @@
 emoji==2.15.0
 google-genai
-groq  # ✅ Para análisis de sentimientos (3-5x más rápido que Gemini)
+groq       # Para análisis de sentimientos con Groq (llama-3.3-70b)
+mistralai  # Para análisis de sentimientos con Mistral (1B tokens/mes gratis)
 matplotlib==3.10.8
 networkx==3.6.1
 nltk==3.9.1

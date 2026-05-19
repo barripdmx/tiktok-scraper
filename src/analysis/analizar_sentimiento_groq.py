@@ -1,12 +1,14 @@
+# -*- coding: utf-8 -*-
 """
-Análisis de sentimiento con Groq - 3-5x más rápido que Gemini
+Análisis de sentimiento con IA - Groq o Mistral
+Selección interactiva de proveedor al iniciar.
 """
 
 import os
+import sys
 import json
 import time
 import pandas as pd
-from groq import Groq
 from dotenv import load_dotenv
 import tkinter as tk
 from tkinter import filedialog
@@ -17,10 +19,27 @@ OUTPUT_BASE = os.path.join(BASE_DIR, "outputs")
 
 load_dotenv(os.path.join(CONFIG_DIR, ".env"))
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.3-70b-versatile"  # Reemplaza a mixtral (dado de baja en 2025)
+# --- Configuración de proveedores ---
+PROVEEDORES = {
+    "groq": {
+        "nombre":        "Groq",
+        "modelo":        "llama-3.3-70b-versatile",
+        "api_key_env":   "GROQ_API_KEY",
+        "sleep":         0.5,    # 30 req/min → 0.5s entre lotes
+        "limite_diario": 100_000,
+        "descripcion":   "Rápido · 100K tokens/día · ~16 días para 46K comentarios",
+    },
+    "mistral": {
+        "nombre":        "Mistral",
+        "modelo":        "open-mistral-nemo",
+        "api_key_env":   "MISTRAL_API_KEY",
+        "sleep":         31,     # 2 req/min → 31s entre lotes
+        "limite_diario": 33_000_000,   # ~1B tokens/mes
+        "descripcion":   "1B tokens/mes · 2 req/min · ~8h seguidas para 46K comentarios",
+    },
+}
+
 BATCH_SIZE = 50
-SLEEP_BETWEEN = 0.5
 
 SYSTEM_PROMPT = """Eres un clasificador de sentimiento para comentarios de TikTok en español.
 Clasifica cada comentario con exactamente una de estas etiquetas:
@@ -28,80 +47,122 @@ Clasifica cada comentario con exactamente una de estas etiquetas:
 - NEG: crítica, insulto, queja, ironía negativa
 - NEU: neutro, pregunta, sin carga emocional clara
 
-Devuelve un JSON array con un objeto por comentario, en el mismo orden:
+Devuelve ÚNICAMENTE un JSON array con un objeto por comentario, en el mismo orden:
 [{"index": 0, "label": "POS"}, {"index": 1, "label": "NEG"}, ...]
 
-Solo el JSON array, sin texto adicional."""
+Sin texto adicional, sin markdown, solo el JSON."""
 
+
+# ─── Excepciones ────────────────────────────────────────────────────────────
 
 class RateLimitDiaria(Exception):
-    """Se lanza cuando se agota el límite de tokens por día."""
+    """Límite de tokens por día agotado."""
     pass
 
 
-def clasificar_lote(client, textos):
-    """Envía un lote de textos a Groq. Lanza RateLimitDiaria si se agota el cupo."""
-    numerados = "\n".join(f"{i}. {t[:200]}" for i, t in enumerate(textos))
-    prompt = f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"
+# ─── Clientes de API ────────────────────────────────────────────────────────
 
-    try:
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": "Eres un clasificador de sentimientos experto."},
-                {"role": "user", "content": prompt}
-            ],
+def crear_cliente(proveedor_id, api_key):
+    """Crea el cliente del proveedor seleccionado."""
+    if proveedor_id == "groq":
+        from groq import Groq
+        return Groq(api_key=api_key)
+    elif proveedor_id == "mistral":
+        try:
+            from mistralai import Mistral          # mistralai < 2.x
+        except ImportError:
+            from mistralai.client import Mistral   # mistralai >= 2.x
+        return Mistral(api_key=api_key)
+    raise ValueError(f"Proveedor desconocido: {proveedor_id}")
+
+
+def llamar_api(client, proveedor_id, modelo, mensajes, max_tokens):
+    """Llama a la API del proveedor y devuelve el texto de la respuesta."""
+    if proveedor_id == "groq":
+        resp = client.chat.completions.create(
+            model=modelo,
+            messages=mensajes,
             temperature=0.3,
             top_p=0.9,
-            max_tokens=1500
+            max_tokens=max_tokens,
         )
+        return resp.choices[0].message.content.strip(), resp.choices[0].finish_reason
 
-        respuesta_text = response.choices[0].message.content.strip()
+    elif proveedor_id == "mistral":
+        resp = client.chat.complete(
+            model=modelo,
+            messages=mensajes,
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content.strip(), resp.choices[0].finish_reason
 
-        # Limpiar markdown si lo hay
-        if respuesta_text.startswith("```json"):
-            respuesta_text = respuesta_text[7:]
-        if respuesta_text.startswith("```"):
-            respuesta_text = respuesta_text[3:]
-        if respuesta_text.endswith("```"):
-            respuesta_text = respuesta_text[:-3]
 
-        datos = json.loads(respuesta_text.strip())
+# ─── Clasificación ──────────────────────────────────────────────────────────
+
+def limpiar_json(texto):
+    """Elimina bloques markdown si el modelo los devuelve."""
+    t = texto.strip()
+    if t.startswith("```json"):
+        t = t[7:]
+    if t.startswith("```"):
+        t = t[3:]
+    if t.endswith("```"):
+        t = t[:-3]
+    return t.strip()
+
+
+def clasificar_lote(client, proveedor_id, modelo, textos):
+    """
+    Clasifica un lote de textos. Devuelve lista de etiquetas o None si fallo puntual.
+    Lanza RateLimitDiaria si se agota el cupo diario.
+    """
+    numerados = "\n".join(f"{i}. {t[:200]}" for i, t in enumerate(textos))
+    mensajes = [
+        {"role": "system", "content": "Eres un clasificador de sentimientos experto en español."},
+        {"role": "user",   "content": f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"},
+    ]
+
+    try:
+        texto_resp, finish_reason = llamar_api(client, proveedor_id, modelo, mensajes, max_tokens=1500)
+        texto_resp = limpiar_json(texto_resp)
+
+        if finish_reason == "length":
+            print(f"   ⚠️ Respuesta truncada (finish_reason=length). Lote omitido.")
+            return None
+
+        datos = json.loads(texto_resp)
         etiquetas = ["NEU"] * len(textos)
-
         for item in datos:
             idx = item.get("index")
             label = str(item.get("label", "NEU")).upper()
             if idx is not None and 0 <= idx < len(textos):
-                if label not in ("POS", "NEG", "NEU"):
-                    label = "NEU"
-                etiquetas[idx] = label
+                etiquetas[idx] = label if label in ("POS", "NEG", "NEU") else "NEU"
         return etiquetas
 
     except Exception as e:
-        err_str = str(e)
-        # Límite diario de tokens agotado → parar limpiamente
-        if "rate_limit_exceeded" in err_str and ("per day" in err_str or "TPD" in err_str or "tokens per day" in err_str):
-            raise RateLimitDiaria(err_str)
-        # Modelo dado de baja → parar
-        if "model_decommissioned" in err_str or "decommissioned" in err_str:
-            raise RuntimeError(
-                f"\n❌ MODELO DADO DE BAJA: {GROQ_MODEL}\n"
-                f"   Modelos disponibles en: https://console.groq.com/docs/models"
-            )
-        print(f"   ⚠️ Error puntual (se reintenta con NEU): {err_str[:120]}")
-        return None  # None indica fallo → no guardar en checkpoint
+        err = str(e)
+        # Límite diario de tokens (Groq TPD o Mistral mensual)
+        if "rate_limit_exceeded" in err and any(k in err for k in ("per day", "TPD", "tokens per day", "per_day")):
+            raise RateLimitDiaria(err)
+        # Modelo dado de baja
+        if "model_decommissioned" in err or "decommissioned" in err:
+            raise RuntimeError(f"\n❌ MODELO DADO DE BAJA: {modelo}")
+        print(f"   ⚠️ Error puntual: {err[:150]}")
+        return None
 
 
-def get_checkpoint_path(csv_file):
-    return csv_file.replace(".csv", "_groq_checkpoint.json")
+# ─── Checkpoint ─────────────────────────────────────────────────────────────
+
+def get_checkpoint_path(csv_file, proveedor_id):
+    return csv_file.replace(".csv", f"_{proveedor_id}_checkpoint.json")
 
 
 def load_checkpoint(checkpoint_path):
     if os.path.exists(checkpoint_path):
         with open(checkpoint_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        print(f"   ✓ Checkpoint: {len(data):,} comentarios ya procesados")
+        print(f"   ✓ Checkpoint encontrado: {len(data):,} comentarios ya clasificados")
         return data
     return {}
 
@@ -111,126 +172,167 @@ def save_checkpoint(checkpoint_path, etiquetas_dict):
         json.dump(etiquetas_dict, f)
 
 
+# ─── Utilidades ─────────────────────────────────────────────────────────────
+
 def detectar_columna_texto(df):
-    """Detecta automáticamente qué columna contiene el texto del comentario."""
-    candidatos = ['texto', 'comment_text', 'text', 'comentario', 'content', 'body']
-    for col in candidatos:
+    """Detecta automáticamente la columna de texto del comentario."""
+    for col in ['texto', 'comment_text', 'text', 'comentario', 'content', 'body']:
         if col in df.columns:
             return col
-    # Fallback: buscar columna con 'text' en el nombre
     for col in df.columns:
-        if 'text' in col.lower() or 'texto' in col.lower() or 'comment' in col.lower():
+        if any(k in col.lower() for k in ('text', 'texto', 'comment')):
             return col
     return None
 
 
-def analizar_sentimiento_groq(df, csv_file):
-    """Analizar sentimientos con Groq."""
-    print("\n--- Analizando sentimiento con Groq ---")
-    print(f"   Modelo: {GROQ_MODEL}")
-    print(f"   Velocidad: ⚡⚡⚡ (3-5x más rápido que Gemini)")
+def seleccionar_proveedor():
+    """Muestra menú para seleccionar proveedor de IA."""
+    print("\n" + "=" * 60)
+    print("  ¿Qué proveedor de IA usar?")
+    print("=" * 60)
+    for i, (pid, cfg) in enumerate(PROVEEDORES.items(), 1):
+        api_key = os.getenv(cfg["api_key_env"], "")
+        estado = "✅ API key configurada" if api_key else "❌ Sin API key"
+        print(f"  {i}. {cfg['nombre']:10s} — {cfg['descripcion']}")
+        print(f"             {estado}")
+    print("=" * 60)
 
-    if not GROQ_API_KEY:
-        print("   ❌ Error: GROQ_API_KEY no configurada en config/.env")
+    while True:
+        opcion = input("  Selecciona (1/2): ").strip()
+        ids = list(PROVEEDORES.keys())
+        if opcion == "1":
+            return ids[0]
+        elif opcion == "2":
+            return ids[1]
+        print("  Opción no válida. Introduce 1 o 2.")
+
+
+# ─── Función principal ──────────────────────────────────────────────────────
+
+def analizar_sentimiento(df, csv_file, proveedor_id):
+    """Analiza sentimientos usando el proveedor indicado."""
+    cfg = PROVEEDORES[proveedor_id]
+    api_key = os.getenv(cfg["api_key_env"], "")
+
+    print(f"\n--- Analizando con {cfg['nombre']} ---")
+    print(f"   Modelo : {cfg['modelo']}")
+    print(f"   Sleep  : {cfg['sleep']}s entre lotes")
+
+    if not api_key:
+        print(f"   ❌ {cfg['api_key_env']} no configurada en config/.env")
         return None
 
     # Detectar columna de texto
     col_texto = detectar_columna_texto(df)
     if col_texto is None:
-        print(f"   ❌ No se encontró columna de texto. Columnas disponibles: {list(df.columns)}")
+        print(f"   ❌ Columna de texto no encontrada. Columnas: {list(df.columns)}")
         return None
     print(f"   Columna de texto: '{col_texto}'")
 
-    # Filtrar comentarios directos (si la columna existe)
+    # Filtrar replies si existe la columna
     if 'is_reply' in df.columns:
-        df_filtered = df[df['is_reply'] == 0].reset_index(drop=True)
-        print(f"   Total comentarios: {len(df)}")
-        print(f"   Comentarios directos: {len(df_filtered)}")
+        df_f = df[df['is_reply'] == 0].reset_index(drop=True)
+        print(f"   Comentarios directos: {len(df_f):,} (de {len(df):,} totales)")
     else:
-        df_filtered = df.reset_index(drop=True)
-        print(f"   Total comentarios: {len(df_filtered)} (columna 'is_reply' no encontrada, se analizan todos)")
+        df_f = df.reset_index(drop=True)
+        print(f"   Comentarios: {len(df_f):,} (sin columna 'is_reply')")
 
-    if len(df_filtered) == 0:
+    if len(df_f) == 0:
         print("   ⚠️ No hay comentarios para analizar")
         return None
 
     # Checkpoint
-    checkpoint_path = get_checkpoint_path(csv_file)
-    etiquetas_dict = load_checkpoint(checkpoint_path)
+    ckpt_path = get_checkpoint_path(csv_file, proveedor_id)
+    etiquetas = load_checkpoint(ckpt_path)
 
-    client = Groq(api_key=GROQ_API_KEY)
+    # Estimación de tiempo
+    pendientes = [i for i in range(len(df_f)) if str(i) not in etiquetas]
+    n_pendientes = len(pendientes)
+    print(f"   Por procesar: {n_pendientes:,}")
 
-    # Procesar comentarios
-    indices_por_procesar = [i for i in range(len(df_filtered)) if str(i) not in etiquetas_dict]
-    total_pendientes = len(indices_por_procesar)
-    print(f"   Por procesar: {total_pendientes:,}")
-    tokens_estimados = total_pendientes * 35
-    dias_estimados = tokens_estimados / 100_000
-    if dias_estimados > 1:
-        print(f"   ⏱️  Estimación plan gratuito: ~{dias_estimados:.0f} días ({tokens_estimados:,} tokens / 100K límite diario)")
+    tokens_est = n_pendientes * 35
+    if proveedor_id == "groq":
+        dias_est = tokens_est / cfg["limite_diario"]
+        if dias_est > 1:
+            print(f"   ⏱️  Groq free: ~{dias_est:.0f} días para completar ({tokens_est:,} tokens / 100K límite diario)")
+    elif proveedor_id == "mistral":
+        horas_est = (n_pendientes / BATCH_SIZE) * cfg["sleep"] / 3600
+        print(f"   ⏱️  Mistral free: ~{horas_est:.1f} horas seguidas (2 req/min)")
 
+    # Crear cliente
     try:
-        for lote_num, i in enumerate(range(0, total_pendientes, BATCH_SIZE)):
-            indices_lote = indices_por_procesar[i:i+BATCH_SIZE]
-            textos = [str(df_filtered.loc[idx, col_texto])[:200] for idx in indices_lote]
+        client = crear_cliente(proveedor_id, api_key)
+    except ImportError as e:
+        pkg = "groq" if proveedor_id == "groq" else "mistralai"
+        print(f"   ❌ Librería no instalada. Ejecuta: pip install {pkg}")
+        return None
 
-            print(f"   Lote {lote_num+1}: {len(textos)} comentarios...", end=" ", flush=True)
-            etiquetas = clasificar_lote(client, textos)
+    # Bucle de clasificación
+    try:
+        for lote_num, i in enumerate(range(0, n_pendientes, BATCH_SIZE)):
+            indices_lote = pendientes[i:i + BATCH_SIZE]
+            textos = [str(df_f.loc[idx, col_texto])[:200] for idx in indices_lote]
 
-            if etiquetas is not None:  # None = fallo puntual → no guardar en checkpoint
-                for idx, etiqueta in zip(indices_lote, etiquetas):
-                    etiquetas_dict[str(idx)] = etiqueta
-                print(f"✓ (Total clasificados: {len(etiquetas_dict):,})")
+            print(f"   Lote {lote_num+1:>4}: {len(textos)} comentarios...", end=" ", flush=True)
+            resultado = clasificar_lote(client, proveedor_id, cfg["modelo"], textos)
+
+            if resultado is not None:
+                for idx, label in zip(indices_lote, resultado):
+                    etiquetas[str(idx)] = label
+                print(f"✓  (clasificados: {len(etiquetas):,})")
             else:
-                print("⚠️ Lote omitido (se reintentará en próxima ejecución)")
+                print("⚠️  omitido")
 
-            # Guardar checkpoint cada 10 lotes para no perder progreso
+            # Checkpoint cada 10 lotes
             if (lote_num + 1) % 10 == 0:
-                save_checkpoint(checkpoint_path, etiquetas_dict)
-                print(f"   💾 Checkpoint guardado ({len(etiquetas_dict):,} comentarios)")
+                save_checkpoint(ckpt_path, etiquetas)
+                print(f"   💾 Checkpoint guardado ({len(etiquetas):,})")
 
-            time.sleep(SLEEP_BETWEEN)
+            time.sleep(cfg["sleep"])
 
-    except RateLimitDiaria as e:
-        print(f"\n⏸️  LÍMITE DIARIO DE TOKENS ALCANZADO")
-        print(f"   Clasificados hoy: {len(etiquetas_dict):,} / {len(df_filtered):,}")
-        print(f"   Pendientes: {len(df_filtered) - len(etiquetas_dict):,}")
+    except RateLimitDiaria:
+        print(f"\n⏸️  LÍMITE DIARIO ALCANZADO")
+        print(f"   Clasificados: {len(etiquetas):,} / {len(df_f):,}")
+        print(f"   Pendientes  : {len(df_f) - len(etiquetas):,}")
+        save_checkpoint(ckpt_path, etiquetas)
         print(f"   ✅ Checkpoint guardado. Ejecuta de nuevo mañana para continuar.")
-        save_checkpoint(checkpoint_path, etiquetas_dict)
         return None
     except KeyboardInterrupt:
-        print(f"\n⏹️  Interrumpido. Guardando checkpoint...")
-        save_checkpoint(checkpoint_path, etiquetas_dict)
-        print(f"   ✅ {len(etiquetas_dict):,} comentarios guardados. Retoma ejecutando de nuevo.")
+        print(f"\n⏹️  Interrumpido por el usuario.")
+        save_checkpoint(ckpt_path, etiquetas)
+        print(f"   ✅ {len(etiquetas):,} comentarios guardados en checkpoint.")
         return None
 
-    save_checkpoint(checkpoint_path, etiquetas_dict)
+    save_checkpoint(ckpt_path, etiquetas)
 
-    # Aplicar etiquetas
-    df_filtered['sentiment'] = df_filtered.index.map(
-        lambda x: etiquetas_dict.get(str(x), "NEU")
-    )
+    # Aplicar etiquetas al DataFrame
+    df_f['sentiment'] = df_f.index.map(lambda x: etiquetas.get(str(x), "NEU"))
 
     # Estadísticas
-    stats = df_filtered['sentiment'].value_counts()
-    print(f"\n   Resultados:")
+    stats = df_f['sentiment'].value_counts()
+    total = len(df_f)
+    print(f"\n   Resultados finales:")
     for label, count in stats.items():
-        pct = 100 * count / len(df_filtered)
-        print(f"      {label}: {count:,} ({pct:.1f}%)")
+        bar = "█" * int(count / total * 30)
+        print(f"      {label}: {count:>7,} ({count/total*100:.1f}%) {bar}")
 
     # Guardar CSV
-    output_csv = csv_file.replace(".csv", "_con_sentimientos_groq.csv")
-    df_filtered.to_csv(output_csv, index=False, encoding="utf-8")
-    print(f"\n   ✓ CSV guardado: {output_csv}")
+    output_csv = csv_file.replace(".csv", f"_con_sentimientos_{proveedor_id}.csv")
+    df_f.to_csv(output_csv, index=False, encoding="utf-8")
+    print(f"\n   ✅ CSV guardado: {os.path.basename(output_csv)}")
 
-    return df_filtered
+    return df_f
 
+
+# ─── Main ───────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 60)
-    print("ANÁLISIS DE SENTIMIENTO CON GROQ")
+    print("  ANÁLISIS DE SENTIMIENTO CON IA")
+    print("  Groq · Mistral")
     print("=" * 60)
 
+    # Seleccionar CSV
     root = tk.Tk()
     root.withdraw()
     root.attributes('-topmost', True)
@@ -242,14 +344,19 @@ def main():
     root.destroy()
 
     if not csv_file:
-        print("Operación cancelada")
+        print("Operación cancelada.")
         return
 
-    print(f"\nCargando: {csv_file}")
+    print(f"\nArchivo: {os.path.basename(csv_file)}")
     df = pd.read_csv(csv_file)
+    print(f"Filas  : {len(df):,}")
 
-    analizar_sentimiento_groq(df, csv_file)
-    print("\n✅ Completado")
+    # Seleccionar proveedor
+    proveedor_id = seleccionar_proveedor()
+
+    # Analizar
+    analizar_sentimiento(df, csv_file, proveedor_id)
+    print("\n✅ Proceso finalizado.")
 
 
 if __name__ == "__main__":
