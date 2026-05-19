@@ -96,6 +96,19 @@ def save_checkpoint(checkpoint_path, etiquetas_dict):
         json.dump(etiquetas_dict, f)
 
 
+def detectar_columna_texto(df):
+    """Detecta automáticamente qué columna contiene el texto del comentario."""
+    candidatos = ['texto', 'comment_text', 'text', 'comentario', 'content', 'body']
+    for col in candidatos:
+        if col in df.columns:
+            return col
+    # Fallback: buscar columna con 'text' en el nombre
+    for col in df.columns:
+        if 'text' in col.lower() or 'texto' in col.lower() or 'comment' in col.lower():
+            return col
+    return None
+
+
 def analizar_sentimiento_groq(df, csv_file):
     """Analizar sentimientos con Groq."""
     print("\n--- Analizando sentimiento con Groq ---")
@@ -105,6 +118,13 @@ def analizar_sentimiento_groq(df, csv_file):
     if not GROQ_API_KEY:
         print("   ❌ Error: GROQ_API_KEY no configurada en config/.env")
         return None
+
+    # Detectar columna de texto
+    col_texto = detectar_columna_texto(df)
+    if col_texto is None:
+        print(f"   ❌ No se encontró columna de texto. Columnas disponibles: {list(df.columns)}")
+        return None
+    print(f"   Columna de texto: '{col_texto}'")
 
     # Filtrar comentarios directos (si la columna existe)
     if 'is_reply' in df.columns:
@@ -131,7 +151,7 @@ def analizar_sentimiento_groq(df, csv_file):
 
     for lote_num, i in enumerate(range(0, len(indices_por_procesar), BATCH_SIZE)):
         indices_lote = indices_por_procesar[i:i+BATCH_SIZE]
-        textos = [df_filtered.loc[idx, 'comment_text'] for idx in indices_lote]
+        textos = [str(df_filtered.loc[idx, col_texto])[:300] for idx in indices_lote]
 
         print(f"   Lote {lote_num+1}: {len(textos)} comentarios...", end=" ")
         etiquetas = clasificar_lote(client, textos)
@@ -171,10 +191,13 @@ def main():
 
     root = tk.Tk()
     root.withdraw()
+    root.attributes('-topmost', True)
     csv_file = filedialog.askopenfilename(
         title="Selecciona CSV de comentarios",
-        filetypes=[("CSV Files", "*.csv")]
+        filetypes=[("CSV Files", "*.csv")],
+        initialdir=os.path.join(BASE_DIR, "data")
     )
+    root.destroy()
 
     if not csv_file:
         print("Operación cancelada")
