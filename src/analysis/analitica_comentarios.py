@@ -959,18 +959,74 @@ def generar_nubes_sentimiento(df, file_id):
 
 # --- FUNCIÓN PRINCIPAL ---
 
-def main():
+def find_latest_csv(data_dirs=None):
+    """Busca el CSV de comentarios más reciente en las carpetas de datos.
+    Busca en: data/, data_tiktok/ y outputs/"""
+    if data_dirs is None:
+        data_dirs = [
+            os.path.join(BASE_DIR, "data"),
+            os.path.join(BASE_DIR, "data_tiktok"),
+        ]
+
+    csv_files = []
+    for data_dir in data_dirs:
+        if not os.path.exists(data_dir):
+            continue
+
+        for root, dirs, files in os.walk(data_dir):
+            for file in files:
+                if file.endswith("_comentarios.csv") or file.endswith("_comentarios_api.csv"):
+                    full_path = os.path.join(root, file)
+                    try:
+                        mtime = os.path.getmtime(full_path)
+                        csv_files.append((mtime, full_path))
+                    except:
+                        pass
+
+    if csv_files:
+        csv_files.sort(reverse=True)
+        print(f"📋 CSVs de comentarios encontrados:")
+        for _, path in csv_files[:5]:  # Muestra los 5 más recientes
+            size = os.path.getsize(path) / 1024  # KB
+            print(f"   • {os.path.basename(path)} ({size:.1f} KB)")
+        return csv_files[0][1]  # Retorna la ruta del más reciente
+    return None
+
+def main(csv_file_arg=None):
     print("--- INICIANDO ANALÍTICA DE COMENTARIOS TIKTOK ---")
-    csv_file = get_file_path()
+
+    # Si se proporciona como argumento, usarlo
+    csv_file = csv_file_arg
+
+    # Si no, intenta abrir el diálogo de selección (funciona en GUI)
+    # Si falla (subprocess), busca automáticamente el CSV más reciente
     if not csv_file:
-        print("Operación cancelada.")
-        return
+        try:
+            csv_file = get_file_path()
+        except Exception as e:
+            print(f"⚠️ Diálogo gráfico no disponible ({e})")
+
+    # Si no seleccionó archivo, busca automáticamente
+    if not csv_file:
+        print("🔍 Buscando CSV de comentarios más reciente...")
+        csv_file = find_latest_csv()
+
+        if csv_file:
+            print(f"✅ Encontrado: {csv_file}")
+        else:
+            print("\n❌ ERROR: No se encontró ningún CSV de comentarios.")
+            print("\n📋 Pasos a seguir:")
+            print("  1. Ejecuta la opción 1 o 2 del menú para descargar videos")
+            print("  2. Luego ejecuta la opción 3 para descargar comentarios")
+            print("  3. Después ejecuta esta opción nuevamente")
+            input("\nPresiona Enter para volver al menú...")
+            return
 
     base_name = os.path.basename(csv_file)
     file_id = os.path.splitext(base_name)[0]
     print(f"\nProcesando archivo: {file_id}")
     create_output_folder(file_id)
-    
+
     try:
         df = pd.read_csv(csv_file)
         required_cols = ['texto', 'autor_handle', 'likes', 'fecha']
@@ -993,21 +1049,41 @@ def main():
     else:
         print("Columna 'is_reply' no encontrada — se analizan todos los comentarios.")
 
-    # --- Interfaz de Colores ---
-    root = tk.Tk()
-    root.withdraw()
-    
-    color_input_text = simpledialog.askstring("Personalización", f"Color para NUBES DE PALABRAS de '{file_id}'\n(Ej: movistar, digi, rojo, azul):", initialvalue=random.choice(list(COLOR_TRANSLATOR.keys())))
-    final_color_text = validate_color(color_input_text)
-    
-    color_input_bars = simpledialog.askstring("Personalización", f"Color para GRÁFICAS DE BARRAS de '{file_id}'\n(Ej: cian, gris, orange):", initialvalue=random.choice(list(COLOR_TRANSLATOR.keys())))
-    final_color_bars = validate_color(color_input_bars, default='steelblue')
-    
+    # --- Interfaz de Colores (con fallback a valores por defecto) ---
+    final_color_text = '#A93226'  # Color por defecto (rojo TikTok)
+    final_color_bars = 'steelblue'  # Color por defecto (azul)
+
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.after(100, root.quit)  # Timeout después de 100ms si no hay respuesta
+
+        try:
+            color_input_text = simpledialog.askstring("Personalización", f"Color para NUBES DE PALABRAS de '{file_id}'\n(Ej: movistar, digi, rojo, azul):", initialvalue='rojo')
+            if color_input_text:
+                final_color_text = validate_color(color_input_text)
+        except:
+            pass
+
+        try:
+            color_input_bars = simpledialog.askstring("Personalización", f"Color para GRÁFICAS DE BARRAS de '{file_id}'\n(Ej: cian, gris, orange):", initialvalue='steelblue')
+            if color_input_bars:
+                final_color_bars = validate_color(color_input_bars, default='steelblue')
+        except:
+            pass
+
+        root.destroy()
+    except Exception as e:
+        print(f"⚠️ Diálogos de color deshabilitados. Usando colores por defecto.")
+        print(f"   (Detalles: {e})")
+
+    print(f"\n🎨 Colores: Nubes={final_color_text}, Barras={final_color_bars}")
+
     # --- Generar Análisis ---
     generar_nubes(df, file_id, final_color_text, final_color_text)
     generar_analisis_comunidad(df, file_id, final_color_bars)
     generar_analisis_temporal(df, file_id, final_color_bars)
-    
+
     # --- Análisis de Sentimiento con IA ---
     df_sentimiento = analizar_sentimiento_ia(df)
     generar_grafica_sentimiento(df_sentimiento, file_id, final_color_bars)
@@ -1017,8 +1093,19 @@ def main():
     exportar_cuentas_por_sentimiento(df_sentimiento, file_id)
     exportar_cuentas_sentimiento_dominante(df_sentimiento, file_id)
 
-    print(f"\n¡PROCESO COMPLETADO!")
-    print(f"Revisa la carpeta '{OUTPUT_FOLDER}' para ver los resultados de '{file_id}'.")
+    print(f"\n✅ ¡PROCESO COMPLETADO!")
+    print(f"📂 Revisa la carpeta '{OUTPUT_FOLDER}' para ver los resultados de '{file_id}'.")
+    input("\nPresiona Enter para volver al menú...")
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    csv_arg = None
+    # Permite pasar la ruta del CSV como argumento: python analitica_comentarios.py "path/to/file.csv"
+    if len(sys.argv) > 1:
+        csv_arg = sys.argv[1]
+        if not os.path.exists(csv_arg):
+            print(f"❌ Archivo no encontrado: {csv_arg}")
+            csv_arg = None
+
+    main(csv_arg)
