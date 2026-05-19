@@ -23,7 +23,11 @@
       "mcp__playwright__browser_close",
       "Bash(grep -E '\\\\.\\(py|md|txt|json\\)$')",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Skill(anthropic-skills:pptx)",
+      "Skill(anthropic-skills:pptx:*)",
+      "Bash(pip install *)",
+      "Bash(soffice --headless --convert-to pdf presentacion_tiktok.pptx)"
     ]
   }
 }

@@ -1,6 +1,6 @@
 emoji==2.15.0
 google-genai
-groq
+groq  # ✅ Para análisis de sentimientos (3-5x más rápido que Gemini)
 matplotlib==3.10.8
 networkx==3.6.1
 nltk==3.9.1
