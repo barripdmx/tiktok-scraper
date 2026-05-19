@@ -99,6 +99,13 @@ Q.  ❌ Salir
                     print(f"\n📋 CSV de videos encontrado: {os.path.basename(csv_videos)}")
             if csv_videos:
                 run_script_with_args("src/visualization/generar_informe_html.py", [csv_videos])
+                # Abrir el informe HTML generado en el navegador
+                nombre_base = os.path.splitext(os.path.basename(csv_videos))[0]
+                proyecto = nombre_base.split("_videos")[0]
+                informe_path = os.path.join(project_root, "outputs", proyecto, "informes", f"{nombre_base}_informe.html")
+                if os.path.exists(informe_path):
+                    print(f"\n🌐 Abriendo informe en el navegador...")
+                    os.startfile(informe_path)
             else:
                 print("\n⚠️  No se encontró ningún CSV de videos en data/")
                 print("   Ejecuta primero la opción 1 (scraper de usuario) o 2 (hashtag)")
