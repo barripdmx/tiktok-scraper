@@ -6,21 +6,20 @@ import subprocess
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-def run_script(path):
+def run_script(path, extra_args=None):
     print(f"\n🚀 Ejecutando: {os.path.basename(path)}...")
     print("-" * 50)
     try:
-        # Ir al directorio raíz del proyecto (2 niveles arriba de scripts/)
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         script_path = os.path.abspath(os.path.join(project_root, path))
 
-        # Verificar que el archivo existe
         if not os.path.exists(script_path):
             print(f"❌ Archivo no encontrado: {script_path}")
             input("\nPresiona Enter para volver al menú...")
             return
 
-        subprocess.run([sys.executable, script_path], check=True)
+        cmd = [sys.executable, script_path] + (extra_args or [])
+        subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError:
         print(f"\n❌ Error al ejecutar el script.")
     except KeyboardInterrupt:
@@ -28,6 +27,9 @@ def run_script(path):
     except Exception as e:
         print(f"\n❌ Error inesperado: {e}")
     input("\nPresiona Enter para volver al menú...")
+
+def run_script_with_args(path, args):
+    run_script(path, extra_args=args)
 
 def main():
     while True:
@@ -82,7 +84,25 @@ Q.  ❌ Salir
         elif choice == '7':
             run_script("src/analysis/comparativa_usuarios.py")
         elif choice == '8':
-            run_script("src/visualization/generar_informe_html.py")
+            # Buscar el CSV de videos más reciente para pasarlo como argumento
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            data_dir = os.path.join(project_root, "data")
+            csv_videos = ""
+            if os.path.exists(data_dir):
+                candidatos = sorted(
+                    [os.path.join(data_dir, f) for f in os.listdir(data_dir)
+                     if f.endswith("_videos.csv")],
+                    key=os.path.getmtime, reverse=True
+                )
+                if candidatos:
+                    csv_videos = candidatos[0]
+                    print(f"\n📋 CSV de videos encontrado: {os.path.basename(csv_videos)}")
+            if csv_videos:
+                run_script_with_args("src/visualization/generar_informe_html.py", [csv_videos])
+            else:
+                print("\n⚠️  No se encontró ningún CSV de videos en data/")
+                print("   Ejecuta primero la opción 1 (scraper de usuario) o 2 (hashtag)")
+                input("\nPresiona Enter para volver al menú...")
         elif choice == '9':
             run_script("src/visualization/crear_gexf.py")
         elif choice == '10':

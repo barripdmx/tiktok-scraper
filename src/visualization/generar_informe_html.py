@@ -145,37 +145,55 @@ def _parse_args():
 
 
 def find_latest_videos_csv() -> str:
-    """Busca el CSV de videos más reciente en data/ como fallback."""
+    """Busca el CSV de PUBLICACIONES más reciente en data/ como fallback.
+    Prioridad: *_videos.csv > otros sin 'comentarios' > cualquiera con video_vistas
+    """
     data_dir = os.path.join(BASE_DIR, "data")
     if not os.path.exists(data_dir):
         return ""
-    candidatos = []
-    for f in os.listdir(data_dir):
-        if f.endswith(".csv") and "comentarios" not in f:
-            full = os.path.join(data_dir, f)
-            candidatos.append((os.path.getmtime(full), full))
-    if candidatos:
-        candidatos.sort(reverse=True)
-        path = candidatos[0][1]
-        print(f"   📋 CSV detectado automáticamente: {os.path.basename(path)}")
+
+    todos = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
+
+    # Prioridad 1: archivos que terminan en _videos.csv (los del scraper)
+    videos_csv = [(os.path.getmtime(os.path.join(data_dir, f)), os.path.join(data_dir, f))
+                  for f in todos if f.endswith("_videos.csv")]
+    if videos_csv:
+        videos_csv.sort(reverse=True)
+        path = videos_csv[0][1]
+        print(f"   📋 CSV de videos detectado: {os.path.basename(path)}")
         return path
-    # Si no hay CSV sin "comentarios", buscar cualquiera
-    for f in os.listdir(data_dir):
-        if f.endswith(".csv"):
-            full = os.path.join(data_dir, f)
-            candidatos.append((os.path.getmtime(full), full))
-    if candidatos:
-        candidatos.sort(reverse=True)
-        path = candidatos[0][1]
-        print(f"   📋 CSV detectado automáticamente: {os.path.basename(path)}")
+
+    # Prioridad 2: cualquier CSV sin 'comentarios' ni 'sentimientos' en el nombre
+    excluir = ("comentarios", "sentimientos", "checkpoint", "enriquecido", "fechas")
+    otros = [(os.path.getmtime(os.path.join(data_dir, f)), os.path.join(data_dir, f))
+             for f in todos if not any(x in f.lower() for x in excluir)]
+    if otros:
+        otros.sort(reverse=True)
+        path = otros[0][1]
+        print(f"   📋 CSV detectado: {os.path.basename(path)}")
         return path
+
+    print("   ❌ No se encontró un CSV de publicaciones en data/")
+    print("   💡 Ejecuta primero la opción 1 o 2 para descargar videos.")
     return ""
+
+
+def es_csv_de_videos(path: str) -> bool:
+    """Comprueba que el CSV tiene columnas de publicaciones (no de comentarios)."""
+    try:
+        cols = pd.read_csv(path, nrows=0).columns.tolist()
+        return "video_vistas" in cols or "video_likes" in cols or "video_id" in cols
+    except Exception:
+        return False
 
 
 def get_file_path(cli_csv: str = None) -> str:
     if cli_csv and os.path.exists(cli_csv):
-        return cli_csv
-    print("📂 Abriendo selector de archivo...")
+        if es_csv_de_videos(cli_csv):
+            return cli_csv
+        print(f"   ⚠️  {os.path.basename(cli_csv)} no parece un CSV de publicaciones.")
+
+    print("📂 Abriendo selector de archivo (CSV de PUBLICACIONES/VIDEOS)...")
     print("   (si no aparece, busca la ventana en la barra de tareas)")
     if _HAS_TK:
         try:
@@ -183,17 +201,21 @@ def get_file_path(cli_csv: str = None) -> str:
             root.withdraw()
             root.attributes('-topmost', True)
             path = filedialog.askopenfilename(
-                title="Selecciona el CSV de publicaciones de TikTok",
+                title="Selecciona el CSV de PUBLICACIONES de TikTok (no comentarios)",
                 filetypes=[("CSV Files", "*.csv")],
                 initialdir=os.path.join(BASE_DIR, "data"),
             )
             root.destroy()
             if path:
-                return path
+                if es_csv_de_videos(path):
+                    return path
+                print(f"   ⚠️  El archivo seleccionado ({os.path.basename(path)}) es de comentarios,")
+                print(f"        no de publicaciones. Buscando automáticamente el correcto...")
         except Exception:
             pass
-    # Fallback: buscar automáticamente el CSV más reciente
-    print("   ⚠️  Diálogo no disponible. Buscando CSV automáticamente...")
+
+    # Fallback: buscar automáticamente el CSV de videos correcto
+    print("   🔍 Buscando CSV de publicaciones automáticamente...")
     return find_latest_videos_csv()
 
 
