@@ -34,9 +34,14 @@ Devuelve un JSON array con un objeto por comentario, en el mismo orden:
 Solo el JSON array, sin texto adicional."""
 
 
+class RateLimitDiaria(Exception):
+    """Se lanza cuando se agota el límite de tokens por día."""
+    pass
+
+
 def clasificar_lote(client, textos):
-    """Envía un lote de textos a Groq."""
-    numerados = "\n".join(f"{i}. {t[:300]}" for i, t in enumerate(textos))
+    """Envía un lote de textos a Groq. Lanza RateLimitDiaria si se agota el cupo."""
+    numerados = "\n".join(f"{i}. {t[:200]}" for i, t in enumerate(textos))
     prompt = f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"
 
     try:
@@ -48,7 +53,7 @@ def clasificar_lote(client, textos):
             ],
             temperature=0.3,
             top_p=0.9,
-            max_tokens=1500  # 50 items * ~10 tokens/item + margen. 500 era insuficiente (truncaba el JSON)
+            max_tokens=1500
         )
 
         respuesta_text = response.choices[0].message.content.strip()
@@ -75,15 +80,17 @@ def clasificar_lote(client, textos):
 
     except Exception as e:
         err_str = str(e)
-        print(f"   Error: {err_str}")
-        # Error fatal: modelo dado de baja → lanzar excepción para detener el proceso
+        # Límite diario de tokens agotado → parar limpiamente
+        if "rate_limit_exceeded" in err_str and ("per day" in err_str or "TPD" in err_str or "tokens per day" in err_str):
+            raise RateLimitDiaria(err_str)
+        # Modelo dado de baja → parar
         if "model_decommissioned" in err_str or "decommissioned" in err_str:
             raise RuntimeError(
                 f"\n❌ MODELO DADO DE BAJA: {GROQ_MODEL}\n"
-                f"   Cambia GROQ_MODEL en el script o usa otro modelo.\n"
                 f"   Modelos disponibles en: https://console.groq.com/docs/models"
             )
-        return ["NEU"] * len(textos)
+        print(f"   ⚠️ Error puntual (se reintenta con NEU): {err_str[:120]}")
+        return None  # None indica fallo → no guardar en checkpoint
 
 
 def get_checkpoint_path(csv_file):
@@ -155,20 +162,47 @@ def analizar_sentimiento_groq(df, csv_file):
 
     # Procesar comentarios
     indices_por_procesar = [i for i in range(len(df_filtered)) if str(i) not in etiquetas_dict]
-    print(f"   Por procesar: {len(indices_por_procesar):,}")
+    total_pendientes = len(indices_por_procesar)
+    print(f"   Por procesar: {total_pendientes:,}")
+    tokens_estimados = total_pendientes * 35
+    dias_estimados = tokens_estimados / 100_000
+    if dias_estimados > 1:
+        print(f"   ⏱️  Estimación plan gratuito: ~{dias_estimados:.0f} días ({tokens_estimados:,} tokens / 100K límite diario)")
 
-    for lote_num, i in enumerate(range(0, len(indices_por_procesar), BATCH_SIZE)):
-        indices_lote = indices_por_procesar[i:i+BATCH_SIZE]
-        textos = [str(df_filtered.loc[idx, col_texto])[:300] for idx in indices_lote]
+    try:
+        for lote_num, i in enumerate(range(0, total_pendientes, BATCH_SIZE)):
+            indices_lote = indices_por_procesar[i:i+BATCH_SIZE]
+            textos = [str(df_filtered.loc[idx, col_texto])[:200] for idx in indices_lote]
 
-        print(f"   Lote {lote_num+1}: {len(textos)} comentarios...", end=" ")
-        etiquetas = clasificar_lote(client, textos)
+            print(f"   Lote {lote_num+1}: {len(textos)} comentarios...", end=" ", flush=True)
+            etiquetas = clasificar_lote(client, textos)
 
-        for idx, etiqueta in zip(indices_lote, etiquetas):
-            etiquetas_dict[str(idx)] = etiqueta
+            if etiquetas is not None:  # None = fallo puntual → no guardar en checkpoint
+                for idx, etiqueta in zip(indices_lote, etiquetas):
+                    etiquetas_dict[str(idx)] = etiqueta
+                print(f"✓ (Total clasificados: {len(etiquetas_dict):,})")
+            else:
+                print("⚠️ Lote omitido (se reintentará en próxima ejecución)")
 
-        print(f"✓ (Total: {len(etiquetas_dict):,})")
-        time.sleep(SLEEP_BETWEEN)
+            # Guardar checkpoint cada 10 lotes para no perder progreso
+            if (lote_num + 1) % 10 == 0:
+                save_checkpoint(checkpoint_path, etiquetas_dict)
+                print(f"   💾 Checkpoint guardado ({len(etiquetas_dict):,} comentarios)")
+
+            time.sleep(SLEEP_BETWEEN)
+
+    except RateLimitDiaria as e:
+        print(f"\n⏸️  LÍMITE DIARIO DE TOKENS ALCANZADO")
+        print(f"   Clasificados hoy: {len(etiquetas_dict):,} / {len(df_filtered):,}")
+        print(f"   Pendientes: {len(df_filtered) - len(etiquetas_dict):,}")
+        print(f"   ✅ Checkpoint guardado. Ejecuta de nuevo mañana para continuar.")
+        save_checkpoint(checkpoint_path, etiquetas_dict)
+        return None
+    except KeyboardInterrupt:
+        print(f"\n⏹️  Interrumpido. Guardando checkpoint...")
+        save_checkpoint(checkpoint_path, etiquetas_dict)
+        print(f"   ✅ {len(etiquetas_dict):,} comentarios guardados. Retoma ejecutando de nuevo.")
+        return None
 
     save_checkpoint(checkpoint_path, etiquetas_dict)
 
