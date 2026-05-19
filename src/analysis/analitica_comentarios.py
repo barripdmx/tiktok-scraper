@@ -79,12 +79,19 @@ def save_plot(filename, tight=True, folder=None):
     plt.close()
 
 def get_file_path():
+    """Abre un diálogo para seleccionar el CSV de comentarios."""
     root = tk.Tk()
-    root.withdraw()
+    root.withdraw()  # Oculta la ventana principal
+    root.attributes('-topmost', True)  # Pone el diálogo en primer plano
+
+    # Abre el diálogo de selección
     file_path = filedialog.askopenfilename(
         title="Selecciona el archivo CSV de COMENTARIOS de TikTok",
-        filetypes=[("CSV Files", "*.csv")]
+        filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+        initialdir=os.path.join(BASE_DIR, "data")  # Abre en la carpeta data/
     )
+
+    root.destroy()  # Destruye la ventana después de seleccionar
     return file_path
 
 def validate_color(color_input, default='black'):
@@ -993,18 +1000,21 @@ def find_latest_csv(data_dirs=None):
     return None
 
 def main(csv_file_arg=None):
-    print("--- INICIANDO ANALÍTICA DE COMENTARIOS TIKTOK ---")
+    print("--- INICIANDO ANALÍTICA DE COMENTARIOS TIKTOK ---\n")
 
     # Si se proporciona como argumento, usarlo
     csv_file = csv_file_arg
 
-    # Si no, intenta abrir el diálogo de selección (funciona en GUI)
-    # Si falla (subprocess), busca automáticamente el CSV más reciente
+    # Si no, intenta abrir el diálogo de selección
     if not csv_file:
+        print("📂 Abriendo diálogo para seleccionar archivo...")
+        print("   (si no se abre automáticamente, revisa tu escritorio)\n")
         try:
             csv_file = get_file_path()
+            if csv_file:
+                print(f"✅ Archivo seleccionado: {os.path.basename(csv_file)}\n")
         except Exception as e:
-            print(f"⚠️ Diálogo gráfico no disponible ({e})")
+            print(f"⚠️ Error en diálogo gráfico: {e}\n")
 
     # Si no seleccionó archivo, busca automáticamente
     if not csv_file:
