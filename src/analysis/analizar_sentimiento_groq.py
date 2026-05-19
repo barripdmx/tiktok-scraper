@@ -48,7 +48,7 @@ def clasificar_lote(client, textos):
             ],
             temperature=0.3,
             top_p=0.9,
-            max_tokens=500
+            max_tokens=1500  # 50 items * ~10 tokens/item + margen. 500 era insuficiente (truncaba el JSON)
         )
 
         respuesta_text = response.choices[0].message.content.strip()
