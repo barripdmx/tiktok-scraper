@@ -17,13 +17,18 @@ from pysentimiento import create_analyzer
 
 # --- CONFIGURACIÓN ---
 # Rutas relativas a la raíz del proyecto (dos niveles arriba de src/analysis)
+import sys as _sys
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUTPUT_BASE     = os.path.join(BASE_DIR, "outputs")
 OUTPUT_FOLDER   = OUTPUT_BASE
 POLARIDAD_FOLDER = OUTPUT_BASE
 LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
-# Usamos una paleta de colores profesional y agradable para los gráficos
-PROFESSIONAL_PALETTE = ['#00254D', '#009BDE', '#FF7900', '#E60000', '#831C94', '#999999']
+
+_sys.path.insert(0, BASE_DIR)
+from config.viz_style import (
+    PALETA, PALETA_CAT, COLOR_MARCA, STAT_BOX, apply_estilo_periodistico
+)
+PROFESSIONAL_PALETTE = PALETA_CAT  # alias para compatibilidad
 
 # Diccionario Maestro de Colores (Traducción + Branding)
 COLOR_TRANSLATOR = {
@@ -126,6 +131,55 @@ def extract_emojis(text):
     return ''.join(c for c in text if c in emoji.EMOJI_DATA)
 
 # --- FUNCIONES DE ANÁLISIS ---
+
+def generar_ranking_palabras(df, file_id, bar_color):
+    """Top-20 palabras más frecuentes como ranking horizontal ordenado.
+    Más preciso que la nube: escala lineal, comparación directa entre palabras.
+    """
+    print("\n--- 1a. Generando Ranking de Palabras (Top 20) ---")
+
+    sw = set(STOPWORDS)
+    sw.update([
+        'de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por',
+        'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero',
+        'es', 'son', 'hay', 'me', 'le', 'te', 'si', 'ya', 'también', 'bien', 'solo',
+        'cuando', 'todo', 'mi', 'ti', 'nos', 'les', 'esto', 'esta', 'ese', 'esa',
+    ])
+
+    all_text = " ".join(df['texto'].dropna().astype(str))
+    all_text = clean_text(all_text)
+    words = [w for w in all_text.split() if len(w) > 2 and w not in sw]
+    freq = Counter(words).most_common(20)
+
+    if not freq:
+        print("   -> Sin palabras suficientes para el ranking.")
+        return
+
+    palabras = [w for w, _ in reversed(freq)]
+    conteos  = [c for _, c in reversed(freq)]
+
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+    bars = ax.barh(range(len(palabras)), conteos, color=bar_color, edgecolor='none', alpha=0.85)
+    ax.set_yticks(range(len(palabras)))
+    ax.set_yticklabels(palabras, fontsize=11)
+    for bar, val in zip(bars, conteos):
+        ax.text(bar.get_width() + max(conteos) * 0.005,
+                bar.get_y() + bar.get_height() / 2,
+                f'{val:,}', va='center', fontsize=9, color='#222222')
+    ax.set_title(f"top 20 palabras en comentarios de {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    ax.set_xlabel("Frecuencia de aparición", fontsize=11)
+    ax.set_xlim(0, max(conteos) * 1.18)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    _apply_estilo_periodistico(ax)
+    ax.grid(axis='x', color='#EBEBEB', linewidth=0.5)
+    ax.grid(axis='y', visible=False)
+    ax.spines['left'].set_visible(False)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_ranking_palabras.png")
+
 
 def generar_nubes(df, file_id, final_color_text, final_color_emoji):
     """Genera nube de palabras y de emoticonos."""
@@ -467,20 +521,8 @@ def analizar_sentimiento_ia(df):
     return df
 
 
-def _apply_estilo_periodistico(ax):
-    """Aplica el estilo periodístico minimalista a un eje."""
-    ax.set_facecolor('#FFFFFF')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#CCCCCC')
-    ax.spines['bottom'].set_color('#CCCCCC')
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    ax.grid(axis='y', color='#EBEBEB', linewidth=0.5, linestyle='-')
-    ax.set_axisbelow(True)
-    ax.tick_params(colors='#555555', labelsize=9)
-    ax.xaxis.label.set_color('#222222')
-    ax.yaxis.label.set_color('#222222')
+# apply_estilo_periodistico importada desde config.viz_style (ver arriba)
+_apply_estilo_periodistico = apply_estilo_periodistico  # alias interno
 
 
 def _get_account(file_id):
@@ -489,8 +531,7 @@ def _get_account(file_id):
         return f"@{name[5:]}"
     return name
 
-_STAT_BOX = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.92,
-                 edgecolor='#CCCCCC', linewidth=0.8)
+_STAT_BOX = STAT_BOX  # alias — definido en config.viz_style
 
 def _add_watermark(ax):
     if not os.path.exists(LOGO_TIKTOK):
@@ -1090,6 +1131,7 @@ def main(csv_file_arg=None):
     print(f"\n🎨 Colores: Nubes={final_color_text}, Barras={final_color_bars}")
 
     # --- Generar Análisis ---
+    generar_ranking_palabras(df, file_id, final_color_bars)   # ranking antes de nube
     generar_nubes(df, file_id, final_color_text, final_color_text)
     generar_analisis_comunidad(df, file_id, final_color_bars)
     generar_analisis_temporal(df, file_id, final_color_bars)

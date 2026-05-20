@@ -6,9 +6,11 @@ Selección interactiva de proveedor al iniciar.
 
 import os
 import sys
+import csv as _csv
 import json
 import time
 import hashlib
+from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 import tkinter as tk
@@ -40,7 +42,21 @@ PROVEEDORES = {
     },
 }
 
-BATCH_SIZE = 50
+BATCH_SIZE     = 50
+TELEMETRY_CSV  = os.path.join(BASE_DIR, "data", "llm_telemetry.csv")
+_TELEM_CAMPOS  = ["timestamp", "proveedor", "modelo", "n_comentarios",
+                  "tokens_in", "tokens_out", "latencia_ms", "finish_reason", "parse_ok"]
+
+
+def _log_telemetria(**kwargs):
+    """Añade una fila al CSV acumulativo de telemetría LLM (crea el fichero si no existe)."""
+    fila = {k: kwargs.get(k, "") for k in _TELEM_CAMPOS}
+    existe = os.path.exists(TELEMETRY_CSV)
+    with open(TELEMETRY_CSV, "a", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=_TELEM_CAMPOS)
+        if not existe:
+            w.writeheader()
+        w.writerow(fila)
 
 SYSTEM_PROMPT = """Eres un clasificador de sentimiento para comentarios de TikTok en español.
 Clasifica cada comentario con exactamente una de estas etiquetas:
@@ -78,7 +94,7 @@ def crear_cliente(proveedor_id, api_key):
 
 
 def llamar_api(client, proveedor_id, modelo, mensajes, max_tokens):
-    """Llama a la API del proveedor y devuelve el texto de la respuesta."""
+    """Llama a la API del proveedor y devuelve (texto, finish_reason, tokens_in, tokens_out)."""
     if proveedor_id == "groq":
         resp = client.chat.completions.create(
             model=modelo,
@@ -87,7 +103,11 @@ def llamar_api(client, proveedor_id, modelo, mensajes, max_tokens):
             top_p=0.9,
             max_tokens=max_tokens,
         )
-        return resp.choices[0].message.content.strip(), resp.choices[0].finish_reason
+        u = resp.usage or {}
+        return (resp.choices[0].message.content.strip(),
+                resp.choices[0].finish_reason,
+                getattr(u, "prompt_tokens", 0),
+                getattr(u, "completion_tokens", 0))
 
     elif proveedor_id == "mistral":
         resp = client.chat.complete(
@@ -96,7 +116,11 @@ def llamar_api(client, proveedor_id, modelo, mensajes, max_tokens):
             temperature=0.3,
             max_tokens=max_tokens,
         )
-        return resp.choices[0].message.content.strip(), resp.choices[0].finish_reason
+        u = resp.usage or {}
+        return (resp.choices[0].message.content.strip(),
+                resp.choices[0].finish_reason,
+                getattr(u, "prompt_tokens", 0),
+                getattr(u, "completion_tokens", 0))
 
 
 # ─── Clasificación ──────────────────────────────────────────────────────────
@@ -124,12 +148,20 @@ def clasificar_lote(client, proveedor_id, modelo, textos):
         {"role": "user",   "content": f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"},
     ]
 
+    t0 = time.time()
     try:
-        texto_resp, finish_reason = llamar_api(client, proveedor_id, modelo, mensajes, max_tokens=1500)
+        texto_resp, finish_reason, tok_in, tok_out = llamar_api(
+            client, proveedor_id, modelo, mensajes, max_tokens=1500
+        )
+        latencia_ms = int((time.time() - t0) * 1000)
         texto_resp = limpiar_json(texto_resp)
 
         if finish_reason == "length":
             print(f"   ⚠️ Respuesta truncada (finish_reason=length). Lote omitido.")
+            _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
+                            modelo=modelo, n_comentarios=len(textos), tokens_in=tok_in,
+                            tokens_out=tok_out, latencia_ms=latencia_ms,
+                            finish_reason=finish_reason, parse_ok=False)
             return None
 
         datos = json.loads(texto_resp)
@@ -139,6 +171,10 @@ def clasificar_lote(client, proveedor_id, modelo, textos):
             label = str(item.get("label", "NEU")).upper()
             if idx is not None and 0 <= idx < len(textos):
                 etiquetas[idx] = label if label in ("POS", "NEG", "NEU") else "NEU"
+        _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
+                        modelo=modelo, n_comentarios=len(textos), tokens_in=tok_in,
+                        tokens_out=tok_out, latencia_ms=latencia_ms,
+                        finish_reason=finish_reason, parse_ok=True)
         return etiquetas
 
     except Exception as e:

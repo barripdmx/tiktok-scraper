@@ -16,10 +16,12 @@ CAMBIOS v2:
 """
 
 import os
+import csv as _csv
 import json
 import time
 import random
 import hashlib
+from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -39,6 +41,10 @@ LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
 
 load_dotenv(os.path.join(CONFIG_DIR, ".env"))  # carga configuración desde config/.env
 
+import sys as _sys
+_sys.path.insert(0, BASE_DIR)
+from config.viz_style import PALETA, STAT_BOX, apply_estilo_periodistico
+
 TWITTER_DPI    = 100   # 16×9 inches × 100dpi = 1600×900px
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # lee del .env
 GEMINI_MODEL   = "gemini-flash-lite-latest"   # alias estable — no se depreca sin aviso
@@ -48,6 +54,20 @@ RETRY_DELAY    = 30   # segundos base entre reintentos (era 15)
 SLEEP_BETWEEN  = 2.0  # segundos entre lotes normales (era 1.5)
 
 CHECKPOINT_INTERVAL = 5   # guardar cada N lotes (era 10)
+TELEMETRY_CSV = os.path.join(BASE_DIR, "data", "llm_telemetry.csv")
+_TELEM_CAMPOS = ["timestamp", "proveedor", "modelo", "n_comentarios",
+                 "tokens_in", "tokens_out", "latencia_ms", "finish_reason", "parse_ok"]
+
+
+def _log_telemetria(**kwargs):
+    """Añade una fila al CSV acumulativo de telemetría LLM."""
+    fila = {k: kwargs.get(k, "") for k in _TELEM_CAMPOS}
+    existe = os.path.exists(TELEMETRY_CSV)
+    with open(TELEMETRY_CSV, "a", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=_TELEM_CAMPOS)
+        if not existe:
+            w.writeheader()
+        w.writerow(fila)
 
 SYSTEM_PROMPT = """Eres un clasificador de sentimiento para comentarios de TikTok en español.
 Clasifica cada comentario con exactamente una de estas etiquetas:
@@ -125,6 +145,7 @@ def clasificar_lote(client, textos, model=None):
     prompt = f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"
 
     for intento in range(5):
+        t0 = time.time()
         try:
             response = client.models.generate_content(
                 model=model,
@@ -134,6 +155,11 @@ def clasificar_lote(client, textos, model=None):
                     temperature=0.1
                 )
             )
+            latencia_ms = int((time.time() - t0) * 1000)
+            um = getattr(response, "usage_metadata", None)
+            tok_in  = getattr(um, "prompt_token_count",     0) if um else 0
+            tok_out = getattr(um, "candidates_token_count", 0) if um else 0
+
             datos = json.loads(response.text)
             etiquetas = ["NEU"] * len(textos)
             for item in datos:
@@ -143,6 +169,10 @@ def clasificar_lote(client, textos, model=None):
                     if label not in ("POS", "NEG", "NEU"):
                         label = "NEU"
                     etiquetas[idx] = label
+            _log_telemetria(timestamp=datetime.now().isoformat(), proveedor="gemini",
+                            modelo=model, n_comentarios=len(textos), tokens_in=tok_in,
+                            tokens_out=tok_out, latencia_ms=latencia_ms,
+                            finish_reason="stop", parse_ok=True)
             return etiquetas
 
         except Exception as e:
@@ -281,8 +311,7 @@ def _get_account(file_id):
         return f"@{name[5:]}"
     return name
 
-_STAT_BOX = dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.92,
-                 edgecolor='#CCCCCC', linewidth=0.8)
+_STAT_BOX = STAT_BOX   # alias — definido en config.viz_style
 
 def _add_watermark(ax):
     if not os.path.exists(LOGO_TIKTOK):
@@ -298,15 +327,7 @@ def _add_watermark(ax):
         pass
 
 
-def _apply_estilo_periodistico(ax):
-    ax.set_facecolor('#FFFFFF')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#CCCCCC')
-    ax.spines['bottom'].set_color('#CCCCCC')
-    ax.grid(axis='y', color='#EBEBEB', linewidth=0.5, linestyle='-')
-    ax.set_axisbelow(True)
-    ax.tick_params(colors='#555555', labelsize=9)
+_apply_estilo_periodistico = apply_estilo_periodistico  # importada de config.viz_style
 
 
 def generar_grafica_sentimiento(df, file_id):
@@ -357,9 +378,7 @@ def generar_evolucion_acumulada(df, file_id):
     fig, ax = plt.subplots(figsize=(16, 9))
     fig.patch.set_facecolor('#FFFFFF')
     ax.plot(x, pos.values, color='#A93226', linewidth=2.5, marker='o', markersize=4)
-    ax.fill_between(x, pos.values, alpha=0.06, color='#A93226')
     ax.plot(x, neg.values, color='#4A4A4A', linewidth=2.5, marker='o', markersize=4)
-    ax.fill_between(x, neg.values, alpha=0.06, color='#4A4A4A')
 
     bbox_style = dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9,
                       edgecolor='#CCCCCC', linewidth=0.5)

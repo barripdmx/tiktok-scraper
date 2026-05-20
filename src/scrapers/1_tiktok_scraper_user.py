@@ -182,7 +182,8 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
     prev_count, no_new = 0, 0
     
     print(f"\n📜 Haciendo scroll para recolectar videos...")
-    
+    motivo_parada = f"techo de scrolls alcanzado ({max_scroll})"
+
     for i in range(max_scroll):
         # Buscar enlaces a videos
         selectors = [
@@ -214,6 +215,8 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
         if cur == prev_count:
             no_new += 1
             if no_new >= NO_NEW_LIMIT:
+                motivo_parada = (f"sin videos nuevos tras {NO_NEW_LIMIT} intentos "
+                                 f"(scroll {i+1}/{max_scroll})")
                 print("   ✅ No hay más videos")
                 break
         else:
@@ -226,7 +229,10 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
     
     await save_cookies(context)
     await page.close()
-    
+
+    log.info("Fin recolección URLs | motivo='%s' | videos_url=%d", motivo_parada, len(video_urls))
+    print(f"   📋 Motivo de parada: {motivo_parada}")
+
     return list(video_urls), user_info
 
 

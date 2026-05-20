@@ -244,6 +244,125 @@ def get_report_title(default_title: str, cli_titulo: str = None) -> str:
     return val if val else default_title
 
 
+def find_sentiment_csv(csv_path: str) -> tuple[str, str]:
+    """Busca el CSV de sentimientos más reciente asociado al CSV de vídeos.
+    Devuelve (ruta, columna_sentimiento) o ('', '')."""
+    base = os.path.splitext(csv_path)[0]
+    data_dir = os.path.dirname(csv_path)
+    candidatos = [
+        (base + "_con_sentimiento_gemini.csv",   "sentimiento"),
+        (base + "_con_sentimientos_groq.csv",     "sentiment"),
+        (base + "_con_sentimientos_mistral.csv",  "sentiment"),
+    ]
+    # También buscar en data/ por nombre de proyecto
+    nombre = os.path.basename(base).split("_videos")[0]
+    for f in os.listdir(data_dir):
+        if f.startswith(nombre) and "sentimiento" in f.lower() and f.endswith(".csv"):
+            ruta = os.path.join(data_dir, f)
+            col = "sentimiento" if "gemini" in f else "sentiment"
+            if (ruta, col) not in candidatos:
+                candidatos.append((ruta, col))
+
+    for ruta, col in candidatos:
+        if os.path.exists(ruta):
+            try:
+                cols = pd.read_csv(ruta, nrows=0).columns.tolist()
+                if col in cols:
+                    print(f"   🎭 CSV sentimiento: {os.path.basename(ruta)}")
+                    return ruta, col
+            except Exception:
+                pass
+    return "", ""
+
+
+def build_sentiment_section(sentiment_csv: str, col: str) -> str:
+    """Genera una sección HTML con distribución de sentimiento (gráfica base64 + KPIs)."""
+    try:
+        df_s = pd.read_csv(sentiment_csv, low_memory=False)
+    except Exception:
+        return ""
+
+    if col not in df_s.columns:
+        return ""
+
+    df_s = df_s[df_s[col].notna()]
+    if df_s.empty:
+        return ""
+
+    # Normalizar etiquetas a formato legible
+    label_map = {"POS": "Positivo", "NEG": "Negativo", "NEU": "Neutro",
+                 "positivo": "Positivo", "negativo": "Negativo", "neutro": "Neutro"}
+    counts = df_s[col].map(lambda x: label_map.get(str(x), str(x))).value_counts()
+    total  = counts.sum()
+
+    # Gráfica horizontal minimalista embebida como base64
+    import io, base64 as _b64
+    colores = {"Positivo": "#1E8449", "Negativo": "#A93226", "Neutro": "#4A4A4A"}
+    etiquetas = [l for l in ["Positivo", "Neutro", "Negativo"] if l in counts.index]
+    valores   = [counts.get(l, 0) for l in etiquetas]
+    colores_bars = [colores.get(l, "#999999") for l in etiquetas]
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    fig.patch.set_facecolor("#FFFFFF")
+    bars = ax.barh(etiquetas, valores, color=colores_bars, edgecolor="none", height=0.5)
+    for bar, val in zip(bars, valores):
+        ax.text(bar.get_width() + max(valores) * 0.01,
+                bar.get_y() + bar.get_height() / 2,
+                f"{val:,}  ({val/total*100:.1f}%)",
+                va="center", fontsize=9, color="#222222")
+    ax.set_xlim(0, max(valores) * 1.28)
+    ax.set_facecolor("#FFFFFF")
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="x", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555", labelsize=9)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+    plt.close()
+    b64 = _b64.b64encode(buf.getvalue()).decode()
+
+    # KPIs de sentimiento
+    kpi_sent = ""
+    for lbl in ["Positivo", "Neutro", "Negativo"]:
+        n = counts.get(lbl, 0)
+        pct = f"{n/total*100:.1f}%"
+        icon = {"Positivo": "😊", "Neutro": "😐", "Negativo": "😠"}.get(lbl, "·")
+        kpi_sent += f"""
+      <div class="kpi">
+        <div class="kpi-icon">{icon}</div>
+        <div class="kpi-value">{fmt_num(n)}</div>
+        <div class="kpi-label">{lbl} · {pct}</div>
+      </div>"""
+
+    sin_clasificar = len(pd.read_csv(sentiment_csv, low_memory=False)) - total
+    aviso_sc = ""
+    if sin_clasificar > 0:
+        aviso_sc = (f'<p class="muted" style="margin-top:10px;font-size:12px;">'
+                    f'⚠️ {sin_clasificar:,} comentarios sin clasificar (errores de API)'
+                    f' — vuelve a ejecutar el análisis de sentimiento para completarlos.</p>')
+
+    proveedor = os.path.basename(sentiment_csv).split("_con_sentimiento")[-1].replace(".csv", "").strip("_")
+    return f"""
+  <section>
+    <h2><span class="acc-p">◆</span> Análisis de Sentimiento
+      <span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:10px;">
+        ({total:,} comentarios · {proveedor.upper() if proveedor else "IA"})
+      </span>
+    </h2>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);max-width:540px;">{kpi_sent}
+    </div>
+    <figure style="margin-top:24px;">
+      <img src="data:image/png;base64,{b64}" alt="Distribución de sentimiento"
+           style="max-width:600px;border-radius:8px;background:#fff;">
+    </figure>
+    {aviso_sc}
+  </section>"""
+
+
 def build_file_id_candidates(file_id: str) -> list[str]:
     candidates = [file_id]
     transforms = [
@@ -1487,6 +1606,13 @@ def main():
     sections_html   = build_image_sections(file_id)
     top_videos_html = build_top_videos(df)
     extra_insights_html = build_extra_insights(df, report_title)
+
+    # ── Sección de sentimiento (si existe CSV con resultados de IA) ───────
+    sent_csv, sent_col = find_sentiment_csv(csv_path)
+    if sent_csv:
+        sentiment_section = build_sentiment_section(sent_csv, sent_col)
+        if sentiment_section:
+            extra_insights_html = sentiment_section + extra_insights_html
 
     # ── Generar HTML ─────────────────────────────────────────────────────
     html_content = generate_html(

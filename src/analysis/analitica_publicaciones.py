@@ -24,15 +24,19 @@ LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
 TWITTER_DPI    = 100   # 16×9 inches × 100dpi = 1600×900px
 FONT_EMOJI     = "C:/Windows/Fonts/seguiemj.ttf"
 
+import sys as _sys
+_sys.path.insert(0, BASE_DIR)
+from config.viz_style import (
+    PALETA, PALETA_CAT, COLOR_MARCA, STAT_BOX, apply_estilo_periodistico
+)
+
+# Mapa de traducción para entradas de usuario (nombre → código hex)
 COLOR_TRANSLATOR = {
     'rojo': '#A93226', 'azul': '#1F618D', 'verde': '#1E8449',
     'amarillo': '#F39C12', 'negro': '#222222', 'blanco': 'white',
     'naranja': '#CA6F1E', 'rosa': '#C0392B', 'morado': '#7D3C98',
     'gris': '#4A4A4A', 'cian': '#117A65',
-    'vodafone': '#C0392B', 'orange': '#CA6F1E', 'yoigo': '#7D3C98',
-    'masmovil': '#CA6F1E', 'pepephone': '#C0392B', 'lowi': '#222222',
-    'movistar': '#1F618D', 'digi': '#117A65', 'o2': '#1A5276',
-    'psoe': '#A93226', 'pp': '#1F618D',
+    **COLOR_MARCA,
 }
 
 
@@ -53,21 +57,6 @@ def save_plot(filename, tight=True):
         plt.savefig(path, dpi=TWITTER_DPI, facecolor='white')
     print(f"-> Guardado: {filename}")
     plt.close()
-
-def apply_estilo_periodistico(ax):
-    """Estilo periodístico minimalista."""
-    ax.set_facecolor('#FFFFFF')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#CCCCCC')
-    ax.spines['bottom'].set_color('#CCCCCC')
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
-    ax.grid(axis='y', color='#EBEBEB', linewidth=0.5, linestyle='-')
-    ax.set_axisbelow(True)
-    ax.tick_params(colors='#555555', labelsize=9)
-    ax.xaxis.label.set_color('#222222')
-    ax.yaxis.label.set_color('#222222')
 
 def get_file_path():
     if _HAS_TK:
