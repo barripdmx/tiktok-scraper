@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import time
+import hashlib
 import pandas as pd
 from dotenv import load_dotenv
 import tkinter as tk
@@ -185,6 +186,43 @@ def detectar_columna_texto(df):
     return None
 
 
+def detectar_columna_id(df):
+    """Detecta la columna de ID estable del comentario."""
+    for col in ['comment_id', 'comentario_id', 'cid', 'id']:
+        if col in df.columns:
+            return col
+    return None
+
+
+def clave_estable(row, col_id, col_texto):
+    """Clave estable por comentario: usa ID si existe, MD5 del texto como fallback."""
+    if col_id:
+        val = row.get(col_id)
+        if val is not None and str(val).strip() not in ('', 'nan', 'None'):
+            return str(val).strip()
+    return hashlib.md5(str(row[col_texto]).encode('utf-8', errors='replace')).hexdigest()[:16]
+
+
+def _migrar_checkpoint_si_necesario(ckpt_path, ckpt_data, df_len):
+    """Detecta checkpoints con claves posicionales (formato antiguo) y los reinicia."""
+    if not ckpt_data:
+        return ckpt_data
+    sample = list(ckpt_data.keys())[:20]
+    try:
+        nums = [int(k) for k in sample]
+        if all(0 <= n < max(df_len * 3, 100_000) for n in nums):
+            import shutil
+            backup = ckpt_path.replace(".json", "_posicional_backup.json")
+            shutil.copy2(ckpt_path, backup)
+            print(f"   ⚠️  Checkpoint en formato antiguo (claves posicionales) detectado.")
+            print(f"   ℹ️  Copia guardada en: {os.path.basename(backup)}")
+            print(f"   🔄  Reiniciando con claves estables (ID de comentario o hash de texto).")
+            return {}
+    except (ValueError, TypeError):
+        pass  # claves ya son IDs o hashes — formato correcto
+    return ckpt_data
+
+
 def seleccionar_proveedor():
     """Muestra menú para seleccionar proveedor de IA."""
     print("\n" + "=" * 60)
@@ -241,12 +279,20 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
         print("   ⚠️ No hay comentarios para analizar")
         return None
 
+    # Clave estable por comentario (ID o hash de texto)
+    col_id = detectar_columna_id(df_f)
+    claves = [clave_estable(df_f.iloc[i].to_dict(), col_id, col_texto)
+              for i in range(len(df_f))]
+    fuente_clave = f"columna '{col_id}'" if col_id else "hash MD5 del texto (sin columna ID)"
+    print(f"   Clave de checkpoint: {fuente_clave}")
+
     # Checkpoint
     ckpt_path = get_checkpoint_path(csv_file, proveedor_id)
     etiquetas = load_checkpoint(ckpt_path)
+    etiquetas = _migrar_checkpoint_si_necesario(ckpt_path, etiquetas, len(df_f))
 
     # Estimación de tiempo
-    pendientes = [i for i in range(len(df_f)) if str(i) not in etiquetas]
+    pendientes = [i for i in range(len(df_f)) if claves[i] not in etiquetas]
     n_pendientes = len(pendientes)
     print(f"   Por procesar: {n_pendientes:,}")
 
@@ -278,10 +324,10 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
 
             if resultado is not None:
                 for idx, label in zip(indices_lote, resultado):
-                    etiquetas[str(idx)] = label
+                    etiquetas[claves[idx]] = label   # clave estable, no posición
                 print(f"✓  (clasificados: {len(etiquetas):,})")
             else:
-                print("⚠️  omitido")
+                print("⚠️  omitido — no se guarda NEU para errores de API")
 
             # Checkpoint cada 10 lotes
             if (lote_num + 1) % 10 == 0:
@@ -305,16 +351,21 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
 
     save_checkpoint(ckpt_path, etiquetas)
 
-    # Aplicar etiquetas al DataFrame
-    df_f['sentiment'] = df_f.index.map(lambda x: etiquetas.get(str(x), "NEU"))
+    # Aplicar etiquetas al DataFrame — None para comentarios sin clasificar (errores de API)
+    df_f['sentiment'] = [etiquetas.get(k, None) for k in claves]
 
-    # Estadísticas
-    stats = df_f['sentiment'].value_counts()
+    # Estadísticas — separar errores de API del NEU real
     total = len(df_f)
-    print(f"\n   Resultados finales:")
+    clasificados = df_f['sentiment'].notna().sum()
+    sin_clasificar = total - clasificados
+    stats = df_f['sentiment'].value_counts(dropna=True)
+    print(f"\n   Resultados finales ({clasificados:,} clasificados / {total:,} total):")
     for label, count in stats.items():
         bar = "█" * int(count / total * 30)
         print(f"      {label}: {count:>7,} ({count/total*100:.1f}%) {bar}")
+    if sin_clasificar > 0:
+        print(f"      ⚠️  Sin clasificar: {sin_clasificar:,} ({sin_clasificar/total*100:.1f}%)"
+              f" — errores de API, vuelve a ejecutar para reintentar")
 
     # Guardar CSV
     output_csv = csv_file.replace(".csv", f"_con_sentimientos_{proveedor_id}.csv")

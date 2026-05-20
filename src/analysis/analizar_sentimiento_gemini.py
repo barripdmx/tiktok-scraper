@@ -19,6 +19,7 @@ import os
 import json
 import time
 import random
+import hashlib
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -58,6 +59,43 @@ Devuelve un JSON array con un objeto por comentario, en el mismo orden:
 [{{"index": 0, "label": "POS"}}, {{"index": 1, "label": "NEG"}}, ...]
 
 Solo el JSON array, sin texto adicional."""
+
+
+def detectar_columna_id(df):
+    """Detecta la columna de ID estable del comentario."""
+    for col in ['comment_id', 'comentario_id', 'cid', 'id']:
+        if col in df.columns:
+            return col
+    return None
+
+
+def clave_estable(row, col_id, col_texto='texto'):
+    """Clave estable por comentario: usa ID si existe, MD5 del texto como fallback."""
+    if col_id:
+        val = row.get(col_id)
+        if val is not None and str(val).strip() not in ('', 'nan', 'None'):
+            return str(val).strip()
+    return hashlib.md5(str(row.get(col_texto, '')).encode('utf-8', errors='replace')).hexdigest()[:16]
+
+
+def _migrar_checkpoint_si_necesario(ckpt_path, ckpt_data, df_len):
+    """Detecta checkpoints con claves posicionales (formato antiguo) y los reinicia."""
+    if not ckpt_data:
+        return ckpt_data
+    sample = list(ckpt_data.keys())[:20]
+    try:
+        nums = [int(k) for k in sample]
+        if all(0 <= n < max(df_len * 3, 100_000) for n in nums):
+            import shutil
+            backup = ckpt_path.replace(".json", "_posicional_backup.json")
+            shutil.copy2(ckpt_path, backup)
+            print(f"   ⚠️  Checkpoint en formato antiguo (claves posicionales) detectado.")
+            print(f"   ℹ️  Copia guardada en: {os.path.basename(backup)}")
+            print(f"   🔄  Reiniciando con claves estables (ID o hash de texto).")
+            return {}
+    except (ValueError, TypeError):
+        pass
+    return ckpt_data
 
 
 def create_output_folder(file_id=None):
@@ -123,7 +161,7 @@ def clasificar_lote(client, textos, model=None):
             print(f"   Esperando {espera:.0f}s...")
             time.sleep(espera)
 
-    return ["NEU"] * len(textos)  # fallback tras 5 reintentos
+    return None  # error técnico — no contaminar distribución con NEUs falsos
 
 
 def get_checkpoint_path(csv_file):
@@ -160,6 +198,14 @@ def analizar_sentimiento_gemini(df, csv_file):
     checkpoint_path = get_checkpoint_path(csv_file)
     checkpoint = load_checkpoint(checkpoint_path)
 
+    # Clave estable por comentario (ID o hash del texto)
+    col_id = detectar_columna_id(df)
+    fuente_clave = f"columna '{col_id}'" if col_id else "hash MD5 del texto"
+    print(f"   Clave de checkpoint: {fuente_clave}")
+    claves = [clave_estable(df.iloc[i].to_dict(), col_id, 'texto') for i in range(len(df))]
+
+    checkpoint = _migrar_checkpoint_si_necesario(checkpoint_path, checkpoint, len(df))
+
     textos = df['texto'].fillna("").astype(str).tolist()
     total  = len(textos)
 
@@ -170,9 +216,11 @@ def analizar_sentimiento_gemini(df, csv_file):
     print(f"   {total:,} comentarios en lotes de {BATCH_SIZE} usando [{model_activo}]...")
 
     for i in range(0, total, BATCH_SIZE):
-        # Saltar lotes ya procesados (checkpoint)
         indices_lote = list(range(i, min(i + BATCH_SIZE, total)))
-        if all(str(idx) in checkpoint for idx in indices_lote):
+        claves_lote  = [claves[idx] for idx in indices_lote]
+
+        # Saltar lotes ya completamente procesados
+        if all(k in checkpoint for k in claves_lote):
             procesados = min(i + BATCH_SIZE, total)
             print(f"   {procesados:,} / {total:,}  ({procesados/total*100:.1f}%) [cached]", end="\r")
             continue
@@ -184,17 +232,17 @@ def analizar_sentimiento_gemini(df, csv_file):
             errores_503_consecutivos = 0  # reset al tener éxito
         except Exception as e:
             msg = str(e)
-            # Si todos los reintentos fallaron por 503, activar fallback
             if "503" in msg and model_activo != FALLBACK_MODEL:
                 errores_503_consecutivos += 1
                 if errores_503_consecutivos >= 2:
                     print(f"\n   ⚠ Demasiados 503 en [{model_activo}]. Cambiando a [{FALLBACK_MODEL}]...")
                     model_activo = FALLBACK_MODEL
                     errores_503_consecutivos = 0
-            tags = ["NEU"] * len(lote)
+            tags = None  # error técnico — no guardar NEU falsos
 
-        for idx, tag in zip(indices_lote, tags):
-            checkpoint[str(idx)] = tag
+        if tags is not None:
+            for k, tag in zip(claves_lote, tags):
+                checkpoint[k] = tag   # clave estable, no posición
 
         lotes_desde_ultimo_save += 1
         if lotes_desde_ultimo_save >= CHECKPOINT_INTERVAL:
@@ -202,19 +250,27 @@ def analizar_sentimiento_gemini(df, csv_file):
             lotes_desde_ultimo_save = 0
 
         procesados = min(i + BATCH_SIZE, total)
-        print(f"   {procesados:,} / {total:,}  ({procesados/total*100:.1f}%) [{model_activo}]", end="\r")
+        estado = "⚠ omitido" if tags is None else f"[{model_activo}]"
+        print(f"   {procesados:,} / {total:,}  ({procesados/total*100:.1f}%) {estado}", end="\r")
         time.sleep(SLEEP_BETWEEN)
 
     # Guardar checkpoint final
     save_checkpoint(checkpoint_path, checkpoint)
 
+    # Aplicar etiquetas — None para errores de API (no NEU falso)
     label_map = {"POS": "positivo", "NEG": "negativo", "NEU": "neutro"}
-    df['sentimiento'] = [label_map.get(checkpoint.get(str(i), "NEU"), "neutro") for i in range(total)]
+    df['sentimiento'] = [label_map.get(checkpoint.get(k), None) for k in claves]
 
-    counts = df['sentimiento'].value_counts()
-    print(f"\n-> Distribución:")
+    # Estadísticas separando errores de API del NEU real
+    clasificados = df['sentimiento'].notna().sum()
+    sin_clasificar = total - clasificados
+    counts = df['sentimiento'].value_counts(dropna=True)
+    print(f"\n-> Distribución ({clasificados:,} clasificados / {total:,} total):")
     for sent, n in counts.items():
         print(f"   {sent}: {n:,} ({n/total*100:.1f}%)")
+    if sin_clasificar > 0:
+        print(f"   ⚠️  Sin clasificar: {sin_clasificar:,} ({sin_clasificar/total*100:.1f}%)"
+              f" — errores de API, vuelve a ejecutar para reintentar")
 
     return df
 
