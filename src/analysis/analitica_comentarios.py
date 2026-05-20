@@ -42,20 +42,11 @@ COLOR_TRANSLATOR = {
     'movistar': '#00254D', 'digi': '#009BDE', 'o2': '#0019A8'
 }
 
-# --- LISTAS DE SENTIMIENTO (LEXICON-BASED) ---
-# Se pueden expandir fácilmente
-PALABRAS_POSITIVAS = [
-    'gracias', 'bien', 'buen', 'buena', 'genial', 'excelente', 'increíble', 'maravilloso', 'amo', 'me encanta',
-    'perfecto', 'guay', 'chulo', 'mola', 'crack', 'jajaja', 'jejeje', 'grande', 'top', 'el mejor', 'la mejor',
-    'ayuda', 'solución', 'rápido', 'eficiente', 'barato', 'económico', 'calidad', 'brutal', 'guapo', 'guapa'
-]
-PALABRAS_NEGATIVAS = [
-    'asco', 'odio', 'mierda', 'puta', 'puto', 'joder', 'no funciona', 'lento', 'caro', 'estafa', 'engaño',
-    'problema', 'error', 'fallo', 'basura', 'ladrone', 'robo', 'nunca más', 'pésimo', 'horrible', 'decepcion',
-    'malo', 'mala', 'vergüenza', 'incompetente', 'desastre', 'harto', 'harta', 'queja', 'reclamacion'
-]
-EMOJIS_POSITIVOS = "😂🤣❤😍😊😁👍✅👏🔥♥️🤩✨💯✔️🥰😘"
-EMOJIS_NEGATIVOS = "😡😠😤🤬😒🙄😭🤦🤦‍♂️🤦‍♀️👎🤮💩"
+# --- LISTAS DE SENTIMIENTO (centralizadas en config/lexicon_sentimiento.py) ---
+from config.lexicon_sentimiento import (
+    PALABRAS_POSITIVAS, PALABRAS_NEGATIVAS,
+    EMOJIS_POSITIVOS, EMOJIS_NEGATIVOS,
+)
 
 
 # --- FUNCIONES AUXILIARES ---
@@ -389,7 +380,7 @@ def generar_analisis_comunidad(df, file_id, bar_color):
     fig, ax = plt.subplots(figsize=(16, 9))
     fig.patch.set_facecolor('#FFFFFF')
     ax.plot(x_pct, y_pct, color=bar_color, linewidth=2.8, zorder=3)
-    ax.fill_between(x_pct, y_pct, color=bar_color, alpha=0.08, zorder=2)
+
     ax.plot([0, 100], [0, 100], color='#BBBBBB', linewidth=1.2, linestyle='--', zorder=1)
 
     ax.scatter([1, 10], [top_1_share, top_10_share], color='#222222', s=35, zorder=4)
@@ -870,11 +861,9 @@ def generar_evolucion_sentimiento_acumulada(df, file_id):
         fig, ax = plt.subplots(figsize=(16, 9))
         fig.patch.set_facecolor('#FFFFFF')
 
-        # Líneas con relleno sutil
+        # Líneas acumuladas (sin fill_between — Tufte: data-ink ratio)
         ax.plot(x, pos_acum.values, color='#A93226', linewidth=2.5, marker='o', markersize=3, zorder=3)
-        ax.fill_between(x, pos_acum.values, alpha=0.06, color='#A93226')
         ax.plot(x, neg_acum.values, color='#4A4A4A', linewidth=2.5, marker='o', markersize=3, zorder=3)
-        ax.fill_between(x, neg_acum.values, alpha=0.06, color='#4A4A4A')
 
         # Etiquetas directas al final de cada línea (sin leyenda separada)
         bbox_style = dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='#CCCCCC', linewidth=0.5)

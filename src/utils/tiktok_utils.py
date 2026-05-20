@@ -40,34 +40,64 @@ get_date_from_id = get_date_from_video_id
 
 
 def estimate_date_from_id_simple(video_id: str) -> datetime:
-    """Estimación alternativa basada en el prefijo del ID cuando el shift falla."""
+    """
+    Estimación alternativa basada en el prefijo del ID (primeros 3 dígitos).
+    Activo cuando el shift de 32 bits falla (IDs sin timestamp estándar).
+
+    Rangos calibrados a 2026-05 (id >> 32 = unix timestamp):
+        prefix >= 772 → 2027-01
+        prefix >= 771 → 2026-12
+        prefix >= 768 → 2026-09
+        prefix >= 764 → 2026-06
+        prefix >= 761 → 2026-03
+        prefix >= 759 → 2026-01
+        prefix >= 757 → 2025-12
+        prefix >= 754 → 2025-09
+        prefix >= 751 → 2025-06
+        prefix >= 745 → 2025-01
+        prefix >= 737 → 2024-06
+        prefix >= 731 → 2024-01
+        prefix >= 718 → 2023-01
+        prefix >= 704 → 2022-01
+        prefix >= 691 → 2021-01
+        else          → 2020-01
+    """
     try:
         vid = str(video_id).replace("'", "")
         prefix = int(vid[:3]) if len(vid) >= 3 else 0
 
-        if prefix >= 758:
-            day_offset = int(vid[3]) * 3 if len(vid) > 3 else 0
-            return datetime(2025, 12, 1).replace(day=min(1 + day_offset, 28))
-        elif prefix >= 755:
-            return datetime(2025, 9, 15)
-        elif prefix >= 750:
+        if prefix >= 772:
+            return datetime(2027, 1, 1)
+        elif prefix >= 771:
+            return datetime(2026, 12, 1)
+        elif prefix >= 768:
+            return datetime(2026, 9, 1)
+        elif prefix >= 764:
+            return datetime(2026, 6, 1)
+        elif prefix >= 761:
+            return datetime(2026, 3, 1)
+        elif prefix >= 759:
+            return datetime(2026, 1, 1)
+        elif prefix >= 757:
+            return datetime(2025, 12, 1)
+        elif prefix >= 754:
+            return datetime(2025, 9, 1)
+        elif prefix >= 751:
             return datetime(2025, 6, 1)
         elif prefix >= 745:
-            return datetime(2025, 3, 1)
-        elif prefix >= 740:
-            return datetime(2024, 12, 1)
-        elif prefix >= 730:
+            return datetime(2025, 1, 1)
+        elif prefix >= 737:
             return datetime(2024, 6, 1)
-        elif prefix >= 720:
+        elif prefix >= 731:
             return datetime(2024, 1, 1)
-        elif prefix >= 710:
-            return datetime(2023, 6, 1)
-        elif prefix >= 700:
+        elif prefix >= 718:
             return datetime(2023, 1, 1)
-        elif prefix >= 690:
+        elif prefix >= 704:
             return datetime(2022, 1, 1)
-        else:
+        elif prefix >= 691:
             return datetime(2021, 1, 1)
+        else:
+            return datetime(2020, 1, 1)
     except Exception:
         return None
 

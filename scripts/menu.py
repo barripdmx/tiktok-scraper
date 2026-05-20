@@ -49,8 +49,7 @@ def main():
 --- FASE 2: ANÁLISIS (PROCESAR DATOS) ---
 4.  📊 Analítica de Publicaciones: Estadísticas de vistas y likes
 5.  🗣️ Analítica de Comentarios: Nubes de palabras y actividad
-6.  🤖 Sentimiento con IA: Clasifica con Groq/Mistral (Pos/Neg/Neu)
-    ⚠️  REVISAR: La opción 5 ya incluye sentimiento (RoBERTa). Posible duplicado.
+6.  🤖 Sentimiento con IA: RoBERTa · Groq · Mistral · Gemini (Pos/Neg/Neu)
 7.  🔄 Comparativa: Analiza usuarios entre distintas cuentas
 
 --- FASE 3: VISUALIZACIÓN (REPORTES) ---
@@ -80,7 +79,7 @@ Q.  ❌ Salir
         elif choice == '5':
             run_script("src/analysis/analitica_comentarios.py")
         elif choice == '6':
-            run_script("src/analysis/analizar_sentimiento_groq.py")
+            run_script("src/analysis/analizar_sentimiento.py")
         elif choice == '7':
             run_script("src/analysis/comparativa_usuarios.py")
         elif choice == '8':

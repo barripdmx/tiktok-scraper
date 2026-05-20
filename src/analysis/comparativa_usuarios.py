@@ -27,6 +27,7 @@ USO:
     - La gráfica se guardará en la carpeta 'gráficas'.
 """
 
+import sys as _sys
 import pandas as pd
 import matplotlib.pyplot as plt
 import tkinter as tk
@@ -40,19 +41,7 @@ BASE_DIR      = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 OUTPUT_FOLDER = os.path.join(BASE_DIR, "outputs", "graphics")
 TOP_N_USERS   = 20  # Número de usuarios a mostrar en la gráfica final
 
-# --- LISTAS DE SENTIMIENTO (LEXICON-BASED) ---
-PALABRAS_POSITIVAS = [
-    'gracias', 'bien', 'buen', 'buena', 'genial', 'excelente', 'increíble', 'maravilloso', 'amo', 'me encanta',
-    'perfecto', 'guay', 'chulo', 'mola', 'crack', 'jajaja', 'jejeje', 'grande', 'top', 'el mejor', 'la mejor',
-    'ayuda', 'solución', 'rápido', 'eficiente', 'barato', 'económico', 'calidad', 'brutal', 'guapo', 'guapa'
-]
-PALABRAS_NEGATIVAS = [
-    'asco', 'odio', 'mierda', 'puta', 'puto', 'joder', 'no funciona', 'lento', 'caro', 'estafa', 'engaño',
-    'problema', 'error', 'fallo', 'basura', 'ladrone', 'robo', 'nunca más', 'pésimo', 'horrible', 'decepcion',
-    'malo', 'mala', 'vergüenza', 'incompetente', 'desastre', 'harto', 'harta', 'queja', 'reclamacion'
-]
-EMOJIS_POSITIVOS = "😂🤣❤😍😊😁👍✅👏🔥♥️🤩✨💯✔️🥰😘"
-EMOJIS_NEGATIVOS = "😡😠😤🤬😒🙄😭🤦🤦‍♂️🤦‍♀️👎🤮💩"
+_sys.path.insert(0, BASE_DIR)
 
 # --- FUNCIONES AUXILIARES ---
 
@@ -83,19 +72,59 @@ def preguntar_mas_archivos():
     return respuesta
 
 def analizar_sentimiento_lexico(df):
-    """Clasifica el sentimiento de cada comentario y lo añade como columna."""
-    def clasificar(texto):
-        texto = str(texto).lower()
-        score_pos = sum(1 for word in PALABRAS_POSITIVAS if word in texto)
-        score_neg = sum(1 for word in PALABRAS_NEGATIVAS if word in texto)
-        score_pos += sum(1 for char in texto if char in EMOJIS_POSITIVOS)
-        score_neg += sum(1 for char in texto if char in EMOJIS_NEGATIVOS)
-        
-        if score_pos > score_neg: return "positivo"
-        if score_neg > score_pos: return "negativo"
+    """
+    Clasifica el sentimiento con pysentimiento (RoBERTa).
+    Fallback a lexicon léxico si pysentimiento no está instalado.
+    Columna resultante: 'sentimiento' con valores 'positivo'/'negativo'/'neutro'.
+    """
+    col = next((c for c in ['texto', 'comment_text', 'text', 'comentario'] if c in df.columns), None)
+    if col is None:
+        df['sentimiento'] = 'neutro'
+        return df
+
+    # Intentar RoBERTa (mejor calidad, sin límites)
+    try:
+        from pysentimiento import create_analyzer
+        print("   Cargando modelo RoBERTa (puede tardar ~30s la primera vez)...")
+        analyzer = create_analyzer(task="sentiment", lang="es")
+        # pysentimiento devuelve POS/NEG/NEU → mapear a positivo/negativo/neutro
+        _MAPA = {"POS": "positivo", "NEG": "negativo", "NEU": "neutro"}
+
+        def _clasificar_roberta(texto):
+            try:
+                r = analyzer.predict(str(texto)[:512])
+                return _MAPA.get(r.output.upper(), "neutro")
+            except Exception:
+                return "neutro"
+
+        df['sentimiento'] = df[col].apply(_clasificar_roberta)
+        print(f"   ✓ RoBERTa: {len(df):,} comentarios clasificados")
+        return df
+
+    except ImportError:
+        pass  # fallback a lexicon
+
+    # Fallback: lexicon léxico (resultado de menor calidad)
+    from config.lexicon_sentimiento import (
+        PALABRAS_POSITIVAS, PALABRAS_NEGATIVAS,
+        EMOJIS_POSITIVOS, EMOJIS_NEGATIVOS,
+    )
+    print("   ⚠️ pysentimiento no instalado. Usando léxico (menor precisión).")
+    print("      Instala con: pip install pysentimiento")
+
+    def _clasificar_lexico(texto):
+        t = str(texto).lower()
+        pos = sum(1 for w in PALABRAS_POSITIVAS if w in t)
+        neg = sum(1 for w in PALABRAS_NEGATIVAS if w in t)
+        pos += sum(1 for c in t if c in EMOJIS_POSITIVOS)
+        neg += sum(1 for c in t if c in EMOJIS_NEGATIVOS)
+        if pos > neg:
+            return "positivo"
+        if neg > pos:
+            return "negativo"
         return "neutro"
-        
-    df['sentimiento'] = df['texto'].apply(clasificar)
+
+    df['sentimiento'] = df[col].apply(_clasificar_lexico)
     return df
 
 def extraer_target_account(filename):
