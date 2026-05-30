@@ -1,145 +1,301 @@
-# TikTok Scraper y Analizador
+# 🎵 TikTok OSINT & Analytics Toolkit
 
-Herramienta completa para scraping, análisis de sentimientos y visualización de datos de TikTok. Utiliza Playwright para extracción, Gemini API para análisis de sentimientos, y genera reportes HTML interactivos.
+Herramienta completa para extraer, analizar y visualizar datos de TikTok: vídeos, comentarios, hashtags, sentimiento con IA y generación de informes HTML periodísticos.
 
-## Estructura del Proyecto
+---
 
+## 📋 Índice
+
+1. [Qué hace esta herramienta](#-qué-hace-esta-herramienta)
+2. [Cuentas que necesitas crear](#-cuentas-que-necesitas-crear)
+3. [APIs que necesitas configurar](#-apis-que-necesitas-configurar)
+4. [Instalación paso a paso](#-instalación-paso-a-paso)
+5. [Configurar las claves API](#-configurar-las-claves-api)
+6. [Primera ejecución](#-primera-ejecución)
+7. [Estructura del proyecto](#-estructura-del-proyecto)
+
+---
+
+## 🔍 Qué hace esta herramienta
+
+| Fase | Qué hace |
+|---|---|
+| **Scraping** | Extrae todos los vídeos de un perfil o hashtag, con sus métricas (vistas, likes, comentarios, fecha) |
+| **Análisis** | Genera +15 gráficas de rendimiento, nubes de palabras, heatmaps de actividad, curvas Pareto |
+| **Sentimiento IA** | Clasifica comentarios como positivo/negativo/neutro usando 3 modelos de IA en pipeline |
+| **Informe HTML** | Genera un informe periodístico autocontenido (sin servidor web) con todas las gráficas embebidas |
+| **Menú visual** | Interfaz gráfica para lanzar todo sin tocar la terminal |
+
+---
+
+## 👤 Cuentas que necesitas crear
+
+Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente para empezar.
+
+### 1. TikTok
+> Para poder hacer scraping necesitas una cuenta activa de TikTok con la que iniciar sesión.
+
+- **Crear cuenta:** https://www.tiktok.com/signup
+- Puede ser una cuenta nueva creada solo para esto (no uses tu cuenta personal principal)
+- Solo se usa una vez al inicio para guardar la sesión
+
+---
+
+### 2. Google AI Studio (Gemini)
+> Proporciona el modelo `gemini-2.0-flash-lite` para análisis de sentimiento. Plan gratuito: 1.500 peticiones/día.
+
+- **Crear cuenta / entrar:** https://aistudio.google.com
+  - Necesitas una cuenta de Google (Gmail). Si ya tienes Gmail, entra directamente.
+- **Obtener API Key:** https://aistudio.google.com/app/apikey
+  - Pulsa **"Create API key"**
+  - Copia la clave (empieza por `AIza...`)
+  - Guárdala en un lugar seguro — la necesitarás en el paso de configuración
+
+---
+
+### 3. Groq
+> Proporciona el modelo `llama-3.3-70b-versatile` (muy rápido, gratuito). Plan gratuito: 14.400 peticiones/día.
+
+- **Crear cuenta:** https://console.groq.com
+  - Pulsa **"Sign Up"** — puedes registrarte con Google
+- **Obtener API Key:** https://console.groq.com/keys
+  - Pulsa **"Create API Key"**
+  - Ponle un nombre (ej: `tiktok-scraper`)
+  - Copia la clave (empieza por `gsk_...`)
+
+---
+
+### 4. Mistral AI
+> Proporciona el modelo `open-mistral-nemo`. Plan gratuito: 1.000 millones de tokens/mes (≈ 3.000 análisis).
+
+- **Crear cuenta:** https://console.mistral.ai
+  - Pulsa **"Sign up"** — puedes registrarte con Google o GitHub
+- **Obtener API Key:** https://console.mistral.ai/api-keys
+  - Pulsa **"Create new key"**
+  - Copia la clave (empieza por `...`)
+  - ⚠️ Solo se muestra **una vez** — cópiala antes de cerrar
+
+---
+
+## 🔑 APIs que necesitas configurar
+
+Resumen de las 3 claves que necesitas:
+
+| API | Para qué sirve | Límite gratuito | URL para obtenerla |
+|---|---|---|---|
+| **GEMINI_API_KEY** | Análisis de sentimiento | 1.500 req/día | https://aistudio.google.com/app/apikey |
+| **GROQ_API_KEY** | Análisis de sentimiento (rápido) | 14.400 req/día | https://console.groq.com/keys |
+| **MISTRAL_API_KEY** | Análisis de sentimiento (backup) | 1B tokens/mes | https://console.mistral.ai/api-keys |
+
+> **¿Para qué sirven 3 APIs de sentimiento?** El sistema las usa en cascada: intenta primero con RoBERTa (local, sin internet), luego Groq, luego Mistral, luego Gemini. Si una falla o alcanza su límite, pasa a la siguiente automáticamente.
+
+---
+
+## 💻 Instalación paso a paso
+
+### Paso 1 — Instalar Python
+
+Si no tienes Python instalado:
+
+1. Ve a https://www.python.org/downloads/
+2. Descarga la versión **3.11** o superior (pulsa el botón amarillo grande)
+3. Durante la instalación, **marca la casilla "Add Python to PATH"** (importante)
+4. Completa la instalación
+
+Para verificar que se instaló bien, abre el terminal (`cmd` en Windows) y escribe:
 ```
-tiktok-scraper/
-├── src/                          # Código principal organizado
-│   ├── scrapers/                 # Scripts de extracción de datos
-│   │   ├── 1-guardar_sesion.py
-│   │   ├── 1_tiktok_scraper_user.py
-│   │   ├── 1_tiktok_scraper_hastag.py
-│   │   └── ...
-│   ├── analysis/                 # Análisis de datos y sentimientos
-│   │   ├── analitica_publicaciones.py
-│   │   ├── analitica_comentarios.py
-│   │   ├── analizar_sentimiento_gemini.py
-│   │   └── ...
-│   ├── visualization/            # Generación de gráficos e informes
-│   │   ├── generar_informe_html.py
-│   │   ├── crear_gexf.py
-│   │   └── ...
-│   └── utils/                    # Funciones utilitarias
-│
-├── scripts/                      # Scripts auxiliares y ejemplos
-├── docs/                         # Documentación (Guides, GEMINI.md, etc.)
-├── config/                       # Configuración (.env no versionado)
-├── data/                         # Datos temporales (no versionado)
-├── outputs/                      # Resultados y gráficas (no versionado)
-├── assets/                       # Recursos (logos, etc.)
-│
-├── README.md                     # Este archivo
-├── requirements.txt              # Dependencias Python
-└── .gitignore                    # Archivos ignorados
+python --version
+```
+Debes ver algo como `Python 3.11.x`
 
-## Configuración
+---
 
-1.  **Clonar el repositorio:**
-    ```bash
-    git clone <repository_url>
-    cd TikTok
-    ```
+### Paso 2 — Descargar el proyecto
 
-2.  **Instalar dependencias:**
-    Asegúrate de tener Python 3.x instalado. Luego, instala las librerías necesarias:
-    ```bash
-    pip install -r requirements.txt
-    ```
+Tienes dos opciones:
 
-3.  **Instalar el navegador de Playwright:**
-    Los scripts usan `playwright` con Chromium. Instálalo con el siguiente comando:
-    ```bash
-    playwright install chromium
-    ```
+**Opción A — Con Git (recomendado):**
+```bash
+git clone https://github.com/barripdmx/tiktok-scraper.git
+cd tiktok-scraper
+```
 
-4.  **Iniciar Sesión en TikTok:**
-    Para que los scrapers funcionen correctamente, necesitas una sesión de TikTok válida. Ejecuta el siguiente script, que abrirá una ventana del navegador:
-    ```bash
-    python 1-guardar_sesion.py
-    ```
-    Inicia sesión manualmente en TikTok. Una vez que hayas iniciado sesión y veas tu feed, presiona `Enter` en la terminal. Tu estado de sesión se guardará en `playwright_auth/tiktok.json`, permitiendo que los otros scripts la reutilicen.
+**Opción B — Sin Git:**
+1. Ve a https://github.com/barripdmx/tiktok-scraper
+2. Pulsa el botón verde **"Code"** → **"Download ZIP"**
+3. Descomprime el ZIP en la carpeta que quieras
+4. Abre esa carpeta en el terminal
 
-## Descripción de los Scripts
+---
 
-### Scripts de Scraping
+### Paso 3 — Instalar las dependencias Python
 
--   **`1-guardar_sesion.py`**:
-    Abre un navegador para que inicies sesión manualmente en TikTok y guarda las cookies y el estado de la sesión. **Este es el primer script que debes ejecutar.**
-
--   **`1_tiktok_scraper_comentarios.py`**:
-    Extrae comentarios de una lista de videos de TikTok proporcionada en un archivo CSV. Es robusto y maneja errores, reintentos y guardado incremental.
-
--   **`1_tiktok_scraper_hastag.py`**:
-    Busca y extrae videos basados en un hashtag específico, con la opción de filtrar por un rango de fechas. Guarda los metadatos de los videos encontrados.
-
--   **`1_tiktok_scraper_user.py`**:
-    Extrae todos los videos de un perfil de usuario de TikTok. Permite filtrar los videos por fecha.
-
-### Scripts de Análisis
-
--   **`analitica_comentarios.py`**:
-    Analiza un CSV de comentarios. Genera nubes de palabras y emojis, identifica a los comentaristas más activos, analiza la actividad a lo largo del tiempo y realiza un análisis de sentimiento. Guarda las gráficas en la carpeta `gráficas/`.
-
--   **`analitica_publicaciones.py`**:
-    Analiza un CSV de publicaciones de videos. Crea nubes de palabras y hashtags, reportes de los videos con mejor rendimiento y gráficas de análisis temporal. Guarda los resultados en `gráficas/`.
-
--   **`analitica_redes.py`**:
-    Genera un conjunto de gráficos y resúmenes pensados para redes sociales a partir de un CSV de videos. Incluye KPIs, evolución de vistas, heatmaps de actividad, tops de videos, hashtags y más. Los resultados se guardan en `graficas_redes/`.
-
--   **`comparativa_usuarios.py`**:
-    Realiza un análisis de sentimiento comparativo de usuarios a través de múltiples cuentas de TikTok. Requiere varios archivos CSV de comentarios y visualiza qué usuarios son consistentemente positivos o negativos hacia ciertas cuentas.
-
-### Scripts para Grafos (Gephi)
-
--   **`crear_gexf.py`**:
-    Crea un archivo de red en formato GEXF a partir de archivos CSV de comentarios. El grafo representa las interacciones entre los autores de los comentarios y los autores de los videos, ideal para visualizar en [Gephi](https://gephi.org/).
-
--   **`grafo_comentarios.py`**:
-    Genera otro tipo de archivo GEXF. Este script modela la relación donde un nodo es el autor del video y otro es el usuario que comenta, con una arista dirigida que representa el comentario. El peso de la arista indica la cantidad de comentarios.
-
-## Uso Rápido
-
-### 1. Instalar dependencias
+Dentro de la carpeta del proyecto, ejecuta:
 ```bash
 pip install -r requirements.txt
+```
+Esto instala todas las librerías necesarias. Puede tardar 2-5 minutos la primera vez.
+
+---
+
+### Paso 4 — Instalar el navegador Chromium (para el scraper)
+
+El scraper controla un navegador real para extraer datos de TikTok. Instala el navegador así:
+```bash
 playwright install chromium
 ```
 
-### 2. Guardar sesión de TikTok
-```bash
-python src/scrapers/1-guardar_sesion.py
-```
-Inicia sesión manualmente en TikTok. Se guardará en `config/` para reutilizar.
+---
 
-### 3. Scrapear datos
+### Paso 5 — Instalar el modelo de IA local (RoBERTa)
+
+La primera vez que ejecutes el análisis de sentimiento, se descargará automáticamente el modelo RoBERTa (~500MB). No necesitas hacer nada, pero ten conexión a internet la primera vez.
+
+---
+
+## ⚙️ Configurar las claves API
+
+### Crear el archivo de configuración
+
+1. Entra a la carpeta `config/` del proyecto
+2. Crea un archivo nuevo llamado **`.env`** (con el punto al principio)
+3. Copia y pega este contenido, sustituyendo los valores por tus claves reales:
+
+```env
+GEMINI_API_KEY=aquí_tu_clave_de_google_ai_studio
+GROQ_API_KEY=aquí_tu_clave_de_groq
+MISTRAL_API_KEY=aquí_tu_clave_de_mistral
+```
+
+**Ejemplo real (con claves inventadas):**
+```env
+GEMINI_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MISTRAL_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+> ⚠️ **Importante:** El archivo `.env` **nunca se sube a GitHub** (está en `.gitignore`). Tus claves son privadas y solo están en tu ordenador.
+
+### ¿Cómo crear un archivo `.env` en Windows?
+
+1. Abre el Bloc de notas
+2. Pega el contenido con tus claves
+3. Ve a **Archivo → Guardar como**
+4. En "Nombre de archivo" escribe: `.env`
+5. En "Tipo" selecciona: **Todos los archivos (\*.\*)**
+6. Navega a la carpeta `config/` del proyecto
+7. Pulsa **Guardar**
+
+---
+
+## 🚀 Primera ejecución
+
+### Opción A — Menú visual (recomendado para principiantes)
+
+Ejecuta el menú gráfico:
 ```bash
-# Por usuario
+python menu.py
+```
+
+Se abrirá una ventana con todos los módulos. El orden recomendado es:
+
+1. **Configuración (botón 0)** — Inicia sesión en TikTok. Se abrirá Chrome, inicia sesión manualmente y pulsa Enter en el terminal.
+2. **Scraper de Usuario (botón 1)** — Escribe el nombre de una cuenta (sin @) y extrae todos sus vídeos.
+3. **Analítica Publicaciones (botón 4)** — Genera las gráficas de rendimiento.
+4. **Sentimiento con IA (botón 6)** — Clasifica los comentarios.
+5. **Informe HTML (botón 8)** — Genera el informe final y lo abre en el navegador.
+
+### Opción B — Terminal
+
+```bash
+# 1. Guardar sesión TikTok (solo la primera vez)
+python src/scrapers/1-guardar_sesion.py
+
+# 2. Extraer vídeos de un usuario
 python src/scrapers/1_tiktok_scraper_user.py
 
-# Por hashtag
-python src/scrapers/1_tiktok_scraper_hastag.py
-
-# Comentarios
-python src/scrapers/1_tiktok_scraper_comentarios.py
-```
-
-### 4. Análisis y visualización
-```bash
-# Publicaciones
+# 3. Analizar publicaciones (genera gráficas)
 python src/analysis/analitica_publicaciones.py
 
-# Sentimientos con Gemini
-python src/analysis/analizar_sentimiento_gemini.py
+# 4. Analizar sentimiento de comentarios
+python src/analysis/analizar_sentimiento.py
 
-# Generar informe HTML
+# 5. Generar informe HTML
 python src/visualization/generar_informe_html.py
 ```
 
-## Documentación Completa
+Los resultados se guardan en `outputs/nombre_cuenta/`.
 
-Ver `docs/` para guías detalladas:
-- `QUICK_START.md` — Tutorial de inicio rápido
-- `GEMINI.md` — Configuración de API Gemini
-- `SCRAPER_USAGE.md` — Detalles de cada scraper
+---
+
+## 📁 Estructura del proyecto
+
+```
+tiktok-scraper/
+│
+├── menu.py                          ← Menú gráfico principal (empieza aquí)
+├── requirements.txt                 ← Lista de librerías a instalar
+│
+├── config/
+│   ├── .env                         ← TUS CLAVES API (crear manualmente, no se sube a GitHub)
+│   └── viz_style.py                 ← Paleta de colores de los gráficos
+│
+├── src/
+│   ├── scrapers/
+│   │   ├── 1-guardar_sesion.py      ← Paso 0: login en TikTok
+│   │   ├── 1_tiktok_scraper_user.py ← Extrae vídeos de un @usuario
+│   │   ├── 2_tiktok_scraper_hastag_api.py  ← Extrae vídeos de un #hashtag
+│   │   └── 2_tiktok_scraper_comentarios_api.py  ← Extrae comentarios
+│   │
+│   ├── analysis/
+│   │   ├── analitica_publicaciones.py  ← +15 gráficas de rendimiento
+│   │   ├── analitica_comentarios.py    ← Nubes de palabras y análisis
+│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq+Mistral+Gemini
+│   │   └── comparativa_usuarios.py     ← Comparar múltiples cuentas
+│   │
+│   └── visualization/
+│       ├── generar_informe_html.py  ← Informe periodístico HTML autocontenido
+│       └── crear_gexf.py           ← Grafo de redes para Gephi
+│
+├── data/                            ← CSVs descargados (no se suben a GitHub)
+└── outputs/                         ← Gráficas e informes generados (no se suben)
+```
+
+---
+
+## ❓ Preguntas frecuentes
+
+**¿Necesito pagar algo?**
+No. Todas las APIs usadas tienen plan gratuito. Los límites gratuitos son más que suficientes para investigación y formación.
+
+**¿Es legal hacer scraping de TikTok?**
+El scraping de datos públicos (perfiles públicos, hashtags públicos) es un área legal compleja. Esta herramienta está pensada para investigación periodística y académica. Respeta los Términos de Servicio de TikTok y la normativa de protección de datos aplicable.
+
+**¿El scraper siempre funciona?**
+TikTok actualiza continuamente su web para dificultar el scraping. Si un scraper deja de funcionar, es probable que TikTok haya cambiado algo. Revisa los issues del repositorio para ver si hay una solución.
+
+**¿Dónde se guardan los datos?**
+Todo se guarda en local, en las carpetas `data/` y `outputs/`. Nada se sube a ningún servidor externo.
+
+**El análisis de sentimiento da error la primera vez**
+Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine y vuelve a ejecutarlo.
+
+---
+
+## 🛠️ Stack tecnológico
+
+| Componente | Tecnología |
+|---|---|
+| Scraping web | Playwright (Chromium) |
+| Análisis de datos | Pandas, NumPy |
+| Gráficas | Matplotlib, Seaborn |
+| IA — Sentimiento local | pysentimiento (RoBERTa) |
+| IA — Sentimiento nube | Groq / Mistral / Gemini |
+| Nubes de palabras | WordCloud |
+| Grafos de redes | NetworkX → GEXF (Gephi) |
+| Interfaz gráfica | CustomTkinter |
+| Configuración | python-dotenv |
+
+---
+
+*Desarrollado para periodismo de datos e investigación en redes sociales.*
