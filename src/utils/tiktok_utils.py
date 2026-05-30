@@ -17,6 +17,7 @@ Importar desde los scrapers:
 
 import os
 import re
+import glob
 import json
 import asyncio
 import random
@@ -332,6 +333,21 @@ async def save_cookies(context, cookies_path: str) -> None:
         pass
 
 
+def _release_profile_locks(profile_dir: str) -> None:
+    """Elimina los archivos LOCK de instancia de Chrome que bloquean el arranque."""
+    # Solo los dos LOCK críticos de instancia; los de leveldb son seguros
+    critical = [
+        os.path.join(profile_dir, "LOCK"),
+        os.path.join(profile_dir, "Default", "LOCK"),
+    ]
+    for path in critical:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+
 async def ensure_context(
     pw,
     profile_dir: str,
@@ -340,11 +356,16 @@ async def ensure_context(
     block_media: bool = True,
 ):
     """Lanza un contexto persistente de Chromium con cookies y configuración antibot."""
-    context = await pw.chromium.launch_persistent_context(
+    _release_profile_locks(profile_dir)
+
+    # Usamos channel="chrome" (Chrome del sistema) porque el perfil fue creado
+    # con Google Chrome y el Chromium bundled de Playwright es mucho más antiguo.
+    # Con headless=False, Chromium bundled crashea al abrir un perfil de Chrome 143+.
+    launch_kwargs = dict(
         user_data_dir=profile_dir,
         headless=headless,
+        channel="chrome",
         args=[
-            '--no-sandbox',
             '--disable-blink-features=AutomationControlled',
             '--window-size=1280,900',
         ],
@@ -356,6 +377,13 @@ async def ensure_context(
             'Chrome/134.0.0.0 Safari/537.36'
         ),
     )
+
+    try:
+        context = await pw.chromium.launch_persistent_context(**launch_kwargs)
+    except Exception:
+        await asyncio.sleep(2)
+        _release_profile_locks(profile_dir)
+        context = await pw.chromium.launch_persistent_context(**launch_kwargs)
 
     if block_media:
         async def _route_handler(route):

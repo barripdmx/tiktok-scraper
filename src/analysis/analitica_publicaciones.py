@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -363,6 +364,303 @@ def graf_timeline(df, file_id, color):
     save_plot(f"{file_id}_timeline_publicaciones.png")
 
 
+# ── GRÁFICAS DE RENDIMIENTO (nuevas) ─────────────────────────────────────────
+
+def graf_distribucion_vistas(df, file_id, color):
+    """10. Histograma logarítmico de vistas con media y mediana."""
+    print("Generando distribución de vistas (log)...")
+    vistas = pd.to_numeric(df['video_vistas'], errors='coerce').dropna()
+    vistas = vistas[vistas > 0]
+    if len(vistas) < 5:
+        return
+
+    media   = vistas.mean()
+    mediana = vistas.median()
+
+    bins = np.logspace(np.log10(vistas.min()), np.log10(vistas.max()), 40)
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+
+    ax.hist(vistas, bins=bins, color=color, edgecolor='none', alpha=0.82)
+    ax.axvline(media,   color='#A93226', linewidth=1.8, linestyle='--',
+               label=f'Media   {media:,.0f}')
+    ax.axvline(mediana, color='#1F618D', linewidth=1.8, linestyle=':',
+               label=f'Mediana {mediana:,.0f}')
+    ax.set_xscale('log')
+    ax.legend(fontsize=10, framealpha=0.9)
+    ax.set_title(f"distribución de vistas de {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    ax.set_xlabel("Vistas (escala logarítmica)", fontsize=11)
+    ax.set_ylabel("Número de vídeos", fontsize=11)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    concentracion = (vistas >= mediana * 10).mean() * 100
+    ax.text(0.02, 0.97,
+            f"mediana {mediana:,.0f} · media {media:,.0f} vistas",
+            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            va='top', ha='left', color='#222222', bbox=_STAT_BOX)
+    apply_estilo_periodistico(ax)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_distribucion_vistas.png")
+
+
+def graf_scatter_vistas_engagement(df, file_id, color):
+    """11. Scatter: vistas vs engagement rate con etiquetas de cuadrante."""
+    print("Generando scatter vistas vs engagement...")
+    work = df.copy()
+    for c in ['video_vistas', 'video_likes', 'video_comentarios',
+              'video_compartidos', 'video_guardados']:
+        work[c] = pd.to_numeric(work.get(c, 0), errors='coerce').fillna(0)
+
+    work = work[work['video_vistas'] > 0].copy()
+    if len(work) < 5:
+        return
+
+    work['eng_rate'] = (
+        work['video_likes'] + work['video_comentarios'] +
+        work['video_compartidos'] + work['video_guardados']
+    ) / work['video_vistas'] * 100
+
+    med_views = work['video_vistas'].median()
+    med_er    = work['eng_rate'].median()
+
+    # Color por cuadrante
+    def _cuadrante_color(r):
+        if r['video_vistas'] >= med_views and r['eng_rate'] >= med_er:
+            return '#1E8449'   # verde  — viral de alta calidad
+        if r['video_vistas'] >= med_views and r['eng_rate'] < med_er:
+            return '#A93226'   # rojo   — viral vacío
+        if r['video_vistas'] < med_views and r['eng_rate'] >= med_er:
+            return '#1F618D'   # azul   — comunidad comprometida
+        return '#AAAAAA'       # gris   — bajo alcance y engagement
+
+    point_colors = work.apply(_cuadrante_color, axis=1)
+
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+
+    ax.scatter(work['video_vistas'], work['eng_rate'],
+               c=point_colors, alpha=0.65, s=55, edgecolors='none')
+    ax.axvline(med_views, color='#CCCCCC', linewidth=1, linestyle='--')
+    ax.axhline(med_er,    color='#CCCCCC', linewidth=1, linestyle='--')
+    ax.set_xscale('log')
+    ax.set_xlabel("Vistas (escala log)", fontsize=11)
+    ax.set_ylabel("Engagement Rate (%)", fontsize=11)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    ax.set_title(f"vistas vs engagement rate — {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+
+    # Etiquetas de cuadrante
+    for (tx, ty, txt, col) in [
+        (0.73, 0.96, "viral de alta calidad",    '#1E8449'),
+        (0.73, 0.08, "viral vacío",               '#A93226'),
+        (0.02, 0.96, "comunidad comprometida",    '#1F618D'),
+        (0.02, 0.08, "bajo alcance y engagement", '#999999'),
+    ]:
+        ax.text(tx, ty, txt, transform=ax.transAxes, fontsize=9,
+                color=col, ha='left', va='top', alpha=0.85)
+
+    apply_estilo_periodistico(ax)
+    ax.grid(axis='x', color='#EBEBEB', linewidth=0.5)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_scatter_vistas_engagement.png")
+
+
+def graf_duracion_vs_vistas(df, file_id, color):
+    """12. Vistas medias por bucket de duración del vídeo."""
+    if 'video_duracion_seg' not in df.columns:
+        return
+    print("Generando duración vs vistas...")
+    work = df.copy()
+    work['video_duracion_seg'] = pd.to_numeric(work['video_duracion_seg'], errors='coerce')
+    work['video_vistas']       = pd.to_numeric(work['video_vistas'],       errors='coerce')
+    work = work.dropna(subset=['video_duracion_seg', 'video_vistas'])
+    work = work[work['video_duracion_seg'] > 0]
+    if len(work) < 5:
+        return
+
+    buckets = [(0, 15, '≤15s'), (15, 30, '16-30s'), (30, 60, '31-60s'), (60, 9999, '>60s')]
+    labels, means, ns = [], [], []
+    for lo, hi, lbl in buckets:
+        sub = work[(work['video_duracion_seg'] > lo) & (work['video_duracion_seg'] <= hi)]
+        if len(sub) >= 2:
+            labels.append(f"{lbl}\n(n={len(sub)})")
+            means.append(sub['video_vistas'].mean())
+            ns.append(len(sub))
+    if not labels:
+        return
+
+    max_mean = max(means)
+    bar_colors = [color if v == max_mean else color + '99' for v in means]
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+    bars = ax.bar(range(len(labels)), means, color=bar_colors, edgecolor='none', width=0.55)
+    for bar, v in zip(bars, means):
+        ax.text(bar.get_x() + bar.get_width() / 2, v + max_mean * 0.01,
+                f"{int(v):,}", ha='center', va='bottom',
+                fontsize=11, fontweight='bold', color='#222222')
+
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=11)
+    ax.set_ylabel("Vistas medias", fontsize=11)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    ax.set_ylim(0, max_mean * 1.22)
+    ax.set_title(f"duración del vídeo vs vistas medias — {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    best = labels[means.index(max_mean)].split('\n')[0]
+    ax.text(0.02, 0.97, f"los vídeos {best} generan más vistas de media",
+            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            va='top', ha='left', color='#222222', bbox=_STAT_BOX)
+    apply_estilo_periodistico(ax)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_duracion_vs_vistas.png")
+
+
+def graf_pareto_vistas(df, file_id, color):
+    """14. Curva de Pareto: % de vídeos vs % acumulado de vistas."""
+    print("Generando curva de Pareto de vistas...")
+    vistas = pd.to_numeric(df['video_vistas'], errors='coerce').dropna()
+    vistas = vistas[vistas >= 0].sort_values(ascending=False).reset_index(drop=True)
+    if len(vistas) < 5:
+        return
+
+    total      = vistas.sum()
+    pct_videos = (vistas.index + 1) / len(vistas) * 100
+    pct_vistas = vistas.cumsum() / total * 100
+
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+
+    ax.plot(pct_videos, pct_vistas, color=color, linewidth=2.5,
+            label='Concentración real')
+    ax.plot([0, 100], [0, 100], color='#CCCCCC', linewidth=1.2,
+            linestyle='--', label='Igualdad perfecta')
+    ax.fill_between(pct_videos, pct_vistas, pct_videos, alpha=0.08, color=color)
+
+    idx_20 = int(np.searchsorted(pct_videos.values, 20))
+    if idx_20 < len(pct_vistas):
+        y_20 = float(pct_vistas.iloc[min(idx_20, len(pct_vistas) - 1)])
+        ax.axvline(20,  color='#A93226', linewidth=1, linestyle=':')
+        ax.axhline(y_20, color='#A93226', linewidth=1, linestyle=':')
+        ax.scatter([20], [y_20], color='#A93226', s=65, zorder=5)
+        ax.text(0.02, 0.97,
+                f"el 20% de los vídeos acumula el {y_20:.0f}% de las vistas",
+                transform=ax.transAxes, fontsize=12, fontweight='bold',
+                va='top', ha='left', color='#222222', bbox=_STAT_BOX)
+
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, 100)
+    ax.set_xlabel("% de vídeos (ordenados por vistas desc)", fontsize=11)
+    ax.set_ylabel("% acumulado de vistas totales", fontsize=11)
+    ax.set_title(f"concentración del alcance (Pareto) — {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    ax.legend(fontsize=10, framealpha=0.9)
+    apply_estilo_periodistico(ax)
+    ax.grid(axis='x', color='#EBEBEB', linewidth=0.5)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_pareto_vistas.png")
+
+
+def graf_engagement_desglose(df, file_id):
+    """15. Barras horizontales apiladas con desglose de likes/comentarios/compartidos/guardados para top 10."""
+    print("Generando desglose de engagement (top 10)...")
+    work = df.copy()
+    eng_cols = [c for c in ['video_likes', 'video_comentarios',
+                             'video_compartidos', 'video_guardados']
+                if c in work.columns]
+    if not eng_cols or 'video_vistas' not in work.columns:
+        return
+
+    for c in eng_cols + ['video_vistas']:
+        work[c] = pd.to_numeric(work[c], errors='coerce').fillna(0)
+
+    top10 = work.nlargest(10, 'video_vistas').copy()
+    if top10.empty:
+        return
+
+    if 'video_desc' in top10.columns:
+        etiquetas = [
+            (str(d)[:38] + '…' if len(str(d)) > 38 else str(d))
+            for d in top10['video_desc'].fillna('(sin desc)')
+        ]
+    else:
+        etiquetas = [f"Vídeo #{i+1}" for i in range(len(top10))]
+
+    meta_cols = {
+        'video_likes':        ('Likes',        '#1F618D'),
+        'video_comentarios':  ('Comentarios',  '#A93226'),
+        'video_compartidos':  ('Compartidos',  '#CA6F1E'),
+        'video_guardados':    ('Guardados',    '#4A4A4A'),
+    }
+
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+
+    acum = np.zeros(len(top10))
+    for col, (label, col_color) in meta_cols.items():
+        if col not in top10.columns:
+            continue
+        vals = top10[col].values.astype(float)
+        ax.barh(range(len(top10)), vals, left=acum, color=col_color,
+                edgecolor='none', height=0.65, label=label, alpha=0.88)
+        acum += vals
+
+    ax.set_yticks(range(len(top10)))
+    ax.set_yticklabels(etiquetas, fontsize=9)
+    ax.set_xlabel("Interacciones", fontsize=11)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    ax.set_title(f"desglose de engagement — top 10 vídeos de {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    ax.legend(loc='lower right', fontsize=10, framealpha=0.9)
+    apply_estilo_periodistico(ax)
+    ax.spines['left'].set_visible(False)
+    ax.tick_params(axis='y', left=False)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_engagement_desglose.png")
+
+
+def graf_cadencia_publicacion(df, file_id, color):
+    """17. Vídeos publicados por semana con media móvil de 4 semanas."""
+    print("Generando cadencia de publicación (rolling 4 semanas)...")
+    if 'video_fecha_dt' not in df.columns:
+        return
+    dft = df.dropna(subset=['video_fecha_dt']).copy()
+    if len(dft) < 8:
+        return
+
+    dft = dft.set_index('video_fecha_dt').sort_index()
+    weekly  = dft.resample('W').size().rename('posts')
+    if len(weekly) < 4:
+        return
+    rolling = weekly.rolling(4, min_periods=1).mean()
+    media_global = weekly.mean()
+
+    fig, ax = plt.subplots(figsize=(16, 9))
+    fig.patch.set_facecolor('#FFFFFF')
+    ax.bar(weekly.index, weekly.values, color=color + '55',
+           edgecolor='none', width=5, label='Vídeos/semana')
+    ax.plot(rolling.index, rolling.values, color=color, linewidth=2.5,
+            label='Media móvil 4 semanas')
+    ax.axhline(media_global, color='#CCCCCC', linewidth=1, linestyle='--')
+    ax.set_title(f"cadencia de publicación de {_get_account(file_id)}",
+                 fontsize=14, color='#444444', pad=12)
+    ax.text(0.02, 0.97,
+            f"media global: {media_global:.1f} vídeos/semana",
+            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            va='top', ha='left', color='#222222', bbox=_STAT_BOX)
+    ax.set_ylabel("Vídeos publicados", fontsize=11)
+    ax.tick_params(axis='x', rotation=45)
+    ax.legend(fontsize=10, framealpha=0.9)
+    apply_estilo_periodistico(ax)
+    _add_watermark(ax)
+    plt.tight_layout()
+    save_plot(f"{file_id}_cadencia_publicacion.png")
+
+
 # --- PRINCIPAL ---
 
 def main():
@@ -423,11 +721,23 @@ def main():
             graf_publicaciones_por_hora(df, file_id, color_text)
             graf_heatmap(df, file_id)
             graf_timeline(df, file_id, color_text)
+            graf_cadencia_publicacion(df, file_id, color_text)   # 17
 
         except Exception as e:
             print(f"-> Error en gráficas temporales: {e}")
 
+    # Gráficas de rendimiento (no requieren fechas)
+    try:
+        graf_distribucion_vistas(df, file_id, color_text)        # 10
+        graf_scatter_vistas_engagement(df, file_id, color_text)  # 11
+        graf_duracion_vs_vistas(df, file_id, color_text)         # 12
+        graf_pareto_vistas(df, file_id, color_text)              # 14
+        graf_engagement_desglose(df, file_id)                    # 15
+    except Exception as e:
+        print(f"-> Error en gráficas de rendimiento: {e}")
+
     print(f"\n¡PROCESO COMPLETADO! Revisa '{OUTPUT_FOLDER}/'")
+    print(f"   Gráficas generadas: 9 originales + 6 nuevas de rendimiento")
 
 if __name__ == "__main__":
     main()

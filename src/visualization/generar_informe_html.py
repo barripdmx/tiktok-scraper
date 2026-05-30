@@ -117,11 +117,32 @@ REPORT_SECTIONS = [
             ("publicaciones_por_dia_semana", "Por Día de la Semana"),
             ("publicaciones_por_hora",       "Por Hora del Día"),
             ("heatmap_actividad",            "Mapa de Calor — Actividad Semanal"),
+            ("cadencia_publicacion",         "Cadencia Semanal (Media Móvil 4 Semanas)"),
+        ],
+    },
+    {
+        "title":  "Distribución del Alcance",
+        "accent": "primary",
+        "cols":   2,
+        "images": [
+            ("distribucion_vistas", "Distribución de Vistas (Escala Log)"),
+            ("pareto_vistas",       "Concentración del Alcance — Curva de Pareto"),
+        ],
+    },
+    {
+        "title":  "Rendimiento por Vídeo",
+        "accent": "cyan",
+        "cols":   2,
+        "images": [
+            ("scatter_vistas_engagement", "Vistas vs Engagement Rate"),
+            ("duracion_vs_vistas",        "Duración del Vídeo vs Vistas Medias"),
+            ("engagement_desglose",       "Desglose de Engagement — Top 10 Vídeos"),
         ],
     },
 ]
 
 REQUIRED_IMAGE_KEYS = [
+    # Originales (9)
     "nube_palabras",
     "nube_hashtags",
     "nube_emoticonos",
@@ -131,6 +152,13 @@ REQUIRED_IMAGE_KEYS = [
     "publicaciones_por_dia_semana",
     "publicaciones_por_hora",
     "heatmap_actividad",
+    # Rendimiento (6)
+    "cadencia_publicacion",
+    "distribucion_vistas",
+    "pareto_vistas",
+    "scatter_vistas_engagement",
+    "duracion_vs_vistas",
+    "engagement_desglose",
 ]
 
 # ---------------------------------------------------------------------------
@@ -219,17 +247,72 @@ def get_file_path(cli_csv: str = None) -> str:
     return find_latest_videos_csv()
 
 
-def get_report_title(default_title: str, cli_titulo: str = None) -> str:
+def get_report_type(file_id: str) -> str:
+    """Pregunta al usuario si el informe es de cuenta de usuario o de hashtag/búsqueda.
+    Auto-detecta a partir del nombre de fichero y pide confirmación.
+    Devuelve 'usuario' o 'hashtag'.
+    """
+    f = file_id.lower()
+    if f.startswith("user_") or "_user_" in f:
+        auto = "usuario"
+    elif any(x in f for x in ("hashtag", "busqueda", "search", "tag_", "ht_")):
+        auto = "hashtag"
+    else:
+        auto = None
+
+    if not _HAS_TK:
+        print(f"   Tipo detectado: {auto or 'usuario'}")
+        return auto or "usuario"
+
+    try:
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+
+        if auto:
+            tipo_legible = "cuenta de usuario (@usuario)" if auto == "usuario" \
+                           else "hashtag / búsqueda (#hashtag)"
+            confirmado = messagebox.askyesno(
+                "Tipo de análisis",
+                f"Se detectó que este CSV es de {tipo_legible}.\n\n¿Es correcto?",
+                parent=root,
+            )
+            result = auto if confirmado else ("hashtag" if auto == "usuario" else "usuario")
+        else:
+            es_usuario = messagebox.askyesno(
+                "Tipo de análisis",
+                "¿Qué tipo de análisis es este informe?\n\n"
+                "  SÍ  →  Cuenta / perfil de usuario  (@usuario)\n"
+                "  NO  →  Hashtag / búsqueda            (#hashtag)",
+                parent=root,
+            )
+            result = "usuario" if es_usuario else "hashtag"
+
+        root.destroy()
+        print(f"   Tipo de informe: {result}")
+        return result
+    except Exception:
+        return auto or "usuario"
+
+
+def get_report_title(default_title: str, cli_titulo: str = None,
+                     report_type: str = "usuario") -> str:
     if cli_titulo and cli_titulo.strip():
         return cli_titulo.strip()
     if _HAS_TK:
         try:
             root = tk.Tk()
             root.withdraw()
-            root.attributes('-topmost', True)
+            root.attributes("-topmost", True)
+            if report_type == "hashtag":
+                prompt = "Hashtag o término analizado\n(sin #  —  identificador del informe):"
+            else:
+                prompt = "Nombre de la cuenta analizada\n(sin @  —  identificador del informe):"
             report_title = simpledialog.askstring(
-                "Título del informe",
-                "Hashtag o término analizado\n(será el título principal del informe):",
+                "Identificador del informe",
+                prompt,
                 initialvalue=default_title,
             )
             root.destroy()
@@ -238,10 +321,8 @@ def get_report_title(default_title: str, cli_titulo: str = None) -> str:
             return default_title
         except Exception:
             pass
-    # Fallback: usar el título por defecto sin preguntar
-    print(f"   Título automático: '{default_title}' (cierra y usa --titulo para cambiarlo)")
-    val = default_title
-    return val if val else default_title
+    print(f"   Identificador automático: '{default_title}'")
+    return default_title
 
 
 def find_sentiment_csv(csv_path: str) -> tuple[str, str]:
@@ -1026,6 +1107,204 @@ def build_kpi_card(icon: str, value: str, label: str, highlight: bool = False) -
       </div>"""
 
 
+def _fmt_short(n: int) -> str:
+    """Formato compacto: 68.4M, 485K, 2.4M…"""
+    try:
+        n = int(n)
+    except Exception:
+        return "—"
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return fmt_num(n)
+
+
+def build_headline(df: pd.DataFrame, report_title: str,
+                   report_type: str = "usuario") -> str:
+    """Genera un titular editorial dinámico adaptado al tipo de informe."""
+    total_videos = len(df)
+    total_views  = col_sum(df, "video_vistas")
+    views_fmt    = _fmt_short(total_views)
+    eng_sum      = sum(col_sum(df, c)
+                       for c in ("video_likes", "video_comentarios",
+                                 "video_compartidos", "video_guardados"))
+    engagement   = eng_sum / total_views * 100 if total_views > 0 else 0
+
+    # ── HASHTAG ────────────────────────────────────────────────────────────
+    if report_type == "hashtag":
+        # Buscar cuenta más activa si el CSV la incluye
+        autor_col = next(
+            (c for c in ["autor_handle", "video_author", "autor", "username", "author"]
+             if c in df.columns), None
+        )
+        if autor_col:
+            top_cuenta = str(df[autor_col].value_counts().index[0])
+            top_n      = int(df[autor_col].value_counts().iloc[0])
+            top_pct    = int(top_n / total_videos * 100)
+            if top_pct >= 15:
+                return (
+                    f'<span class="hl-num">{total_videos} vídeos</span> con '
+                    f'<span class="hl-num">#{html.escape(report_title)}</span> '
+                    f'y <span class="hl-num">{views_fmt} vistas</span> — '
+                    f'<span class="hl-accent">@{html.escape(top_cuenta)}</span> '
+                    f'concentra el {top_pct}% de las publicaciones'
+                )
+        # Sin columna de autor o sin cuenta dominante
+        return (
+            f'<span class="hl-num">{total_videos} vídeos</span> con '
+            f'<span class="hl-num">#{html.escape(report_title)}</span> '
+            f'acumulan <span class="hl-num">{views_fmt} vistas</span> '
+            f'y un engagement del <span class="hl-accent">{engagement:.1f}%</span>'
+        )
+
+    # ── USUARIO ────────────────────────────────────────────────────────────
+    if total_views > 0 and total_videos > 1:
+        work = df.copy()
+        work["video_vistas"] = pd.to_numeric(
+            work.get("video_vistas", 0), errors="coerce").fillna(0)
+        sorted_v   = work.sort_values("video_vistas", ascending=False)
+        top1_views = int(sorted_v.iloc[0]["video_vistas"])
+        top1_share = top1_views / total_views
+
+        # Caso A: vídeo viral dominante (> 30 % de las vistas)
+        if top1_share > 0.30:
+            top1_desc  = str(sorted_v.iloc[0].get("video_desc", "")).strip()
+            words      = top1_desc.split()
+            short_desc = " ".join(words[:6]) if len(words) >= 4 else top1_desc
+            pct        = int(top1_share * 100)
+            if short_desc:
+                return (
+                    f'<span class="hl-num">{total_videos} vídeos, {views_fmt} vistas:</span> '
+                    f'"{html.escape(short_desc)}…" concentra el '
+                    f'<span class="hl-accent">{pct}% del alcance total</span>'
+                )
+            return (
+                f'<span class="hl-num">{total_videos} vídeos</span> y '
+                f'<span class="hl-num">{views_fmt} vistas:</span> '
+                f'un solo vídeo concentra el '
+                f'<span class="hl-accent">{pct}% del alcance total</span>'
+            )
+
+    # Caso B: distribución uniforme — cadencia + engagement
+    cadencia = ""
+    if "video_fecha" in df.columns:
+        dates = pd.to_datetime(df["video_fecha"], errors="coerce",
+                               dayfirst=True).dropna()
+        if len(dates) >= 4:
+            span_days     = (dates.max() - dates.min()).days or 1
+            vids_per_week = total_videos / (span_days / 7)
+            cadencia = (f', publicando '
+                        f'<span class="hl-num">{vids_per_week:.1f} vídeos/semana</span>')
+
+    return (
+        f'<span class="hl-num">{total_videos} vídeos</span> y '
+        f'<span class="hl-num">{views_fmt} vistas</span>{cadencia} — '
+        f'engagement del <span class="hl-accent">{engagement:.1f}%</span>'
+    )
+
+
+def build_standfirst(df: pd.DataFrame, report_title: str,
+                     report_type: str = "usuario") -> str:
+    """Genera el párrafo de contexto (standfirst) adaptado al tipo de informe."""
+    total_videos = len(df)
+    total_views  = col_sum(df, "video_vistas")
+    eng_sum      = sum(col_sum(df, c)
+                       for c in ("video_likes", "video_comentarios",
+                                 "video_compartidos", "video_guardados"))
+    engagement   = eng_sum / total_views * 100 if total_views > 0 else 0
+    eng_line     = (f" La tasa de engagement media se sitúa en el "
+                    f"<strong>{engagement:.1f}%</strong>.")
+
+    # Rango de fechas común a ambos tipos
+    date_range = ""
+    if "video_fecha" in df.columns:
+        dates = pd.to_datetime(
+            df["video_fecha"], errors="coerce", dayfirst=True).dropna()
+        if not dates.empty:
+            def _mes_es(dt):
+                s = dt.strftime("%d de %B de %Y")
+                for en, es in MESES_ES.items():
+                    s = s.replace(en, es)
+                return s
+            date_range = (f" entre el {_mes_es(dates.min())} "
+                          f"y el {_mes_es(dates.max())}")
+
+    # ── HASHTAG ────────────────────────────────────────────────────────────
+    if report_type == "hashtag":
+        # Cuenta más activa
+        autor_col = next(
+            (c for c in ["autor_handle", "video_author", "autor", "username", "author"]
+             if c in df.columns), None
+        )
+        autor_line = ""
+        if autor_col:
+            top_cuenta = str(df[autor_col].value_counts().index[0])
+            top_n      = int(df[autor_col].value_counts().iloc[0])
+            top_pct    = int(top_n / total_videos * 100)
+            autor_line = (
+                f" <strong>@{html.escape(top_cuenta)}</strong> es la cuenta más activa"
+                f" con <strong>{top_n} publicaciones</strong> ({top_pct}% del total)."
+            )
+        return (
+            f'Análisis de <strong>{total_videos} vídeos</strong> etiquetados con '
+            f'<strong>#{html.escape(report_title)}</strong>{date_range}.'
+            f'{autor_line}{eng_line}'
+        )
+
+    # ── USUARIO ────────────────────────────────────────────────────────────
+    viral_line = ""
+    if total_views > 0 and total_videos > 1:
+        work = df.copy()
+        work["video_vistas"] = pd.to_numeric(
+            work.get("video_vistas", 0), errors="coerce").fillna(0)
+        sorted_v   = work.sort_values("video_vistas", ascending=False)
+        top1_views = int(sorted_v.iloc[0]["video_vistas"])
+        top1_share = top1_views / total_views
+        if top1_share > 0.25:
+            top1_date = str(sorted_v.iloc[0].get("video_fecha", ""))[:10]
+            date_str  = (f"publicado el <strong>{html.escape(top1_date)}</strong> — "
+                         if top1_date and top1_date != "nan" else "")
+            viral_line = (
+                f" Un solo vídeo — {date_str}concentra el "
+                f"<strong>{int(top1_share*100)}% de todas las vistas</strong> del corpus."
+            )
+
+    return (
+        f'Un análisis de <strong>{total_videos} publicaciones</strong> del perfil '
+        f'<strong>@{html.escape(report_title)}</strong>{date_range}.'
+        f'{viral_line}{eng_line}'
+    )
+
+
+def build_kpi_strip(
+    total_videos: int, total_views: int, avg_views: int,
+    total_likes: int, total_comments: int, engagement: float,
+) -> str:
+    """Genera la franja horizontal de KPIs (sin tarjetas, separadores finos)."""
+    items = [
+        ("primary", _fmt_short(total_views),   "Vistas totales",  "acumuladas"),
+        ("",        str(total_videos),          "Vídeos",          "analizados"),
+        ("",        _fmt_short(avg_views),      "Media vistas",    "por vídeo"),
+        ("",        _fmt_short(total_likes),    "Likes",           ""),
+        ("",        _fmt_short(total_comments), "Comentarios",     ""),
+        ("accent",  f"{engagement:.1f}%",       "Engagement",      "likes+coment+comp / vistas"),
+    ]
+    parts = []
+    for cls, num, label, ctx in items:
+        item_cls = f"kpi-item {cls}".strip()
+        ctx_html = f'\n        <div class="kpi-context">{html.escape(ctx)}</div>' if ctx else ""
+        parts.append(
+            f'  <div class="{item_cls}">\n'
+            f'    <div class="kpi-number">{num}</div>\n'
+            f'    <div class="kpi-label">{label}</div>{ctx_html}\n'
+            f'  </div>'
+        )
+    return '<div class="kpi-strip">\n' + "\n".join(parts) + "\n</div>"
+
+
 def build_top_videos(df: pd.DataFrame) -> str:
     needed = {"video_vistas", "video_url", "video_desc"}
     if not needed.issubset(df.columns):
@@ -1142,6 +1421,7 @@ def generate_html(
     top_videos_html: str,
     extra_insights_html: str,
     now: str,
+    report_type: str = "usuario",
 ) -> str:
 
     # ── KPIs ─────────────────────────────────────────────────────────────
@@ -1158,33 +1438,34 @@ def generate_html(
         if total_views else 0
     )
 
-    kpi_html = f"""
-    <div class="kpi-grid">
-      {build_kpi_card("🎬", fmt_num(total_videos),   "Videos")}
-      {build_kpi_card("👁",  fmt_num(total_views),    "Vistas Totales",    highlight=True)}
-      {build_kpi_card("❤️", fmt_num(total_likes),    "Likes")}
-      {build_kpi_card("💬", fmt_num(total_comments), "Comentarios")}
-      {build_kpi_card("↗️", fmt_num(total_shares),   "Compartidos")}
-      {build_kpi_card("🔖", fmt_num(total_saves),    "Guardados")}
-      {build_kpi_card("📈", fmt_num(avg_views),      "Media Vistas/Video")}
-      {build_kpi_card("📊", f"{engagement:.2f}%",    "Engagement Rate",   highlight=True)}
-    </div>"""
+    kpi_strip_html = build_kpi_strip(
+        total_videos, total_views, avg_views,
+        total_likes, total_comments, engagement,
+    )
+
+    # Titular y standfirst editoriales (generados desde los datos)
+    headline_html   = build_headline(df, report_title, report_type)
+    standfirst_html = build_standfirst(df, report_title, report_type)
 
     # ── CSS (embebido) ────────────────────────────────────────────────────
     css = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:      #010101;
-  --surface: #161823;
-  --card:    #1f2029;
-  --border:  #2e3040;
-  --primary: #fe2c55;
-  --cyan:    #25f4ee;
-  --text:    #ffffff;
-  --muted:   #8a8b91;
-  --radius:  12px;
-  --shadow:  0 4px 24px rgba(0,0,0,.6);
+  --bg:       #050508;
+  --surface:  #0e0e14;
+  --card:     #1f2029;
+  --border:   #1e1e2a;
+  --border-l: #2a2a3a;
+  --primary:  #fe2c55;
+  --cyan:     #25f4ee;
+  --text:     #f0f0f5;
+  --muted:    #6b6b7d;
+  --muted2:   #9090a0;
+  --serif:    Georgia, 'Times New Roman', serif;
+  --sans:     'Segoe UI', system-ui, -apple-system, sans-serif;
+  --radius:   12px;
+  --shadow:   0 4px 24px rgba(0,0,0,.6);
 }
 
 body {
@@ -1195,80 +1476,85 @@ body {
   line-height: 1.6;
 }
 
-/* ── HEADER ─────────────────────────────────────────────────── */
+/* ── HEADER — estilo periodismo de datos ─────────────────────── */
 header {
-  background: linear-gradient(160deg, #0d0d0d 0%, #1a0a12 45%, #091520 100%);
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-  padding: 60px 40px 52px;
-  text-align: center;
+  padding: 72px 0 0;
   position: relative;
   overflow: hidden;
 }
 header::before {
   content: '';
-  position: absolute; top: -110px; left: 50%; transform: translateX(-50%);
-  width: 800px; height: 400px;
-  background: radial-gradient(ellipse, rgba(254,44,85,.18) 0%, transparent 65%);
-  pointer-events: none;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary) 0%, var(--cyan) 100%);
 }
-header::after {
-  content: '';
-  position: absolute; bottom: -90px; right: 5%;
-  width: 550px; height: 280px;
-  background: radial-gradient(ellipse, rgba(37,244,238,.10) 0%, transparent 65%);
-  pointer-events: none;
+.header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 36px 52px;
 }
+
+/* Eyebrow — dateline estilo periódico */
 .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.eyebrow-label {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 4px;
+  letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: 18px;
 }
-.eyebrow em { color: var(--primary); font-style: normal; }
-
-header h1 {
-  font-size: clamp(34px, 6vw, 64px);
-  font-weight: 900;
-  letter-spacing: -2px;
-  line-height: 1.05;
-  position: relative;
+.eyebrow-dot {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
 }
-header h1 .at  { color: var(--cyan); }
-
-.header-credit {
-  position: absolute;
-  right: 28px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  z-index: 1;
-  line-height: 1.4;
-  text-align: right;
-}
-.header-credit .at { color: var(--cyan); }
-
-.badge {
-  display: inline-block;
-  margin-top: 12px;
-  padding: 4px 12px;
-  background: rgba(37,244,238,.12);
-  border: 1px solid rgba(37,244,238,.35);
-  border-radius: 20px;
+.eyebrow-account {
   font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
   color: var(--cyan);
-  letter-spacing: 1.2px;
-  font-weight: 600;
 }
-.meta {
-  margin-top: 16px;
+.eyebrow-date {
+  font-size: 11px;
   color: var(--muted);
-  font-size: 13px;
+  letter-spacing: 1px;
+  margin-left: auto;
 }
+
+/* Titular editorial */
+.headline {
+  font-family: var(--serif);
+  font-size: clamp(24px, 4vw, 44px);
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  margin-bottom: 20px;
+  max-width: 820px;
+}
+.headline .hl-num    { color: var(--cyan); font-style: italic; }
+.headline .hl-accent { color: var(--primary); }
+
+/* Standfirst / subtítulo */
+.standfirst {
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--muted2);
+  max-width: 680px;
+  margin-bottom: 0;
+  font-weight: 400;
+}
+.standfirst strong { color: var(--text); font-weight: 600; }
 
 /* ── MAIN ───────────────────────────────────────────────────── */
 main {
@@ -1290,47 +1576,80 @@ section h2 {
 .acc-p { color: var(--primary); margin-right: 9px; }
 .acc-c { color: var(--cyan);    margin-right: 9px; }
 
-/* ── KPI CARDS ──────────────────────────────────────────────── */
+/* ── KPI STRIP — franja horizontal sin tarjetas ─────────────── */
+.kpi-strip {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 36px;
+  border-top: 1px solid var(--border-l);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.kpi-strip::-webkit-scrollbar { display: none; }
+
+.kpi-item {
+  flex: 1 0 auto;
+  padding: 24px 28px 22px;
+  border-right: 1px solid var(--border);
+  min-width: 110px;
+}
+.kpi-item:first-child { padding-left: 0; }
+.kpi-item:last-child  { border-right: none; padding-right: 0; }
+
+.kpi-number {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-item.primary .kpi-number { color: var(--cyan); }
+.kpi-item.accent  .kpi-number { color: var(--primary); }
+
+.kpi-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-top: 5px;
+  font-weight: 600;
+}
+.kpi-context {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-style: italic;
+}
+
+/* KPI grid (solo sección de sentimiento, dentro de main) */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 14px;
 }
 .kpi {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 22px 14px 18px;
+  padding: 18px 12px 16px;
   text-align: center;
-  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
 }
-.kpi:hover {
-  transform: translateY(-4px);
-  border-color: var(--primary);
-  box-shadow: 0 8px 32px rgba(254,44,85,.18);
-}
-.kpi.highlight {
-  border-color: rgba(37,244,238,.35);
-  background: linear-gradient(135deg, #1f2029 0%, #162230 100%);
-}
-.kpi.highlight:hover {
-  border-color: var(--cyan);
-  box-shadow: 0 8px 32px rgba(37,244,238,.18);
-}
-.kpi-icon  { font-size: 24px; margin-bottom: 9px; }
+.kpi-icon  { font-size: 22px; margin-bottom: 8px; }
 .kpi-value {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1;
   color: var(--text);
 }
-.kpi.highlight .kpi-value { color: var(--cyan); }
 .kpi-label {
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 1.2px;
-  margin-top: 7px;
+  margin-top: 6px;
 }
 
 /* ── TOP VIDEOS TABLE ───────────────────────────────────────── */
@@ -1487,14 +1806,20 @@ footer strong { color: var(--primary); }
 /* ── RESPONSIVE ─────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .cols-3 { grid-template-columns: repeat(2, 1fr); }
+  .header-inner, .kpi-strip { padding-left: 20px; padding-right: 20px; }
 }
 @media (max-width: 600px) {
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .insight-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: span 1; }
-  header { padding: 40px 20px; }
-  main   { padding: 32px 16px 60px; }
+  header  { padding-top: 48px; }
+  .header-inner { padding: 0 16px 36px; }
+  .kpi-strip { padding: 0 16px; }
+  .kpi-item  { padding: 18px 18px 16px; min-width: 90px; }
+  main { padding: 32px 16px 60px; }
+  .headline { font-size: clamp(20px, 6vw, 32px); }
+  .standfirst { font-size: 15px; }
 }
 """
 
@@ -1503,25 +1828,27 @@ footer strong { color: var(--primary); }
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TikTok Analytics · {report_title}</title>
+  <title>TikTok Analytics · {"#" if report_type=="hashtag" else "@"}{report_title}</title>
   <style>{css}</style>
 </head>
 <body>
 
 <header>
-  <div class="header-credit"><span class="at">@</span>barripdmx</div>
-  <p class="eyebrow">Tik<em>Tok</em> Analytics Report</p>
-  <h1>{report_title}</h1>
-  <p class="meta">Análisis de publicaciones &middot; Generado el {now}</p>
+  <div class="header-inner">
+    <div class="eyebrow">
+      <span class="eyebrow-label">TikTok Analytics</span>
+      <span class="eyebrow-dot"></span>
+      <span class="eyebrow-account">{"#" if report_type=="hashtag" else "@"}{html.escape(report_title)}</span>
+      <span class="eyebrow-date">Generado el {now}</span>
+    </div>
+    <h1 class="headline">{headline_html}</h1>
+    <p class="standfirst">{standfirst_html}</p>
+  </div>
 </header>
 
-<main>
+{kpi_strip_html}
 
-  <!-- ── RESUMEN GENERAL ───────────────────────────────────── -->
-  <section>
-    <h2><span class="acc-p">★</span> Resumen General</h2>
-    {kpi_html}
-  </section>
+<main>
 
   <!-- ── TOP 5 VIDEOS ──────────────────────────────────────── -->
   {top_videos_html}
@@ -1591,10 +1918,15 @@ def main():
         if dropped:
             print(f"   ⚠️  {dropped} filas duplicadas eliminadas → {len(df)} videos únicos.")
 
-    # ── Preguntar título del informe ─────────────────────────────────────
+    # ── Tipo de informe (usuario / hashtag) ──────────────────────────────
+    report_type = get_report_type(file_id)
+
+    # ── Identificador del informe ─────────────────────────────────────────
     default_title = derive_title(file_id)
-    report_title = get_report_title(default_title, args.titulo)
-    print(f"   Título   : {report_title}")
+    report_title  = get_report_title(default_title, args.titulo, report_type)
+    prefix        = "#" if report_type == "hashtag" else "@"
+    print(f"   Tipo     : {report_type}")
+    print(f"   Título   : {prefix}{report_title}")
 
     # ── Generar gráficas base automáticamente ─────────────────────────────
     ensure_report_images(file_id, df)
@@ -1621,6 +1953,7 @@ def main():
         sections_html, top_videos_html,
         extra_insights_html,
         now,
+        report_type=report_type,
     )
 
     # ── Guardar ──────────────────────────────────────────────────────────
