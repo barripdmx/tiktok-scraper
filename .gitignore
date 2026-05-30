@@ -46,3 +46,22 @@ desktop.ini
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+
+# ── Presentaciones y documentos internos ──────────────────────────────────────
+presentacion_tiktok.pptx
+presentacion_tiktok_backup.pptx
+*.pptx
+
+# ── Notas y resúmenes internos ────────────────────────────────────────────────
+CAMBIO_GROQ_RESUMEN.txt
+GROQ_SETUP.md
+
+# ── Herramientas locales (Claude, Codex, Cursor) ──────────────────────────────
+.codegraph/
+.codex/
+.cursor/
+.claude/
+
+# ── Scripts de construcción internos ─────────────────────────────────────────
+scripts/build_taller_presentations.py
+scripts/build_taller_presentations_v2.py
