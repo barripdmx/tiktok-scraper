@@ -262,7 +262,7 @@ class MenuApp(ctk.CTk):
                    lambda: run_script("src/analysis/analitica_comentarios.py",
                                       status_cb=self._status))
         self._card(col2, "6", "🤖", "Sentimiento con IA",
-                   "RoBERTa · Groq · Gemini",
+                   "RoBERTa · Groq · Mistral",
                    lambda: run_script("src/analysis/analizar_sentimiento.py",
                                       status_cb=self._status))
         self._card(col2, "7", "🔄", "Comparativa Usuarios",

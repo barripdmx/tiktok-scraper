@@ -2,7 +2,7 @@
 """
 2_tiktok_scraper_hastag_api.py — Scraper híbrido via API interna
 ================================================================
-Implementa la Opción 2 de Gemini: en lugar de hacer scroll del DOM,
+Estrategia basada en API: en lugar de hacer scroll del DOM,
 pagina directamente contra la API interna de TikTok usando page.evaluate(fetch()).
 
 Cómo funciona:

@@ -1,5 +1,4 @@
 emoji==2.15.0
-google-genai
 groq       # Para análisis de sentimientos con Groq (llama-3.3-70b)
 mistralai  # Para análisis de sentimientos con Mistral (1B tokens/mes gratis)
 matplotlib==3.10.8

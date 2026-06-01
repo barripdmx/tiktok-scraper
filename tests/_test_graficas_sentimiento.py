@@ -21,18 +21,18 @@ print(f"Comentarios directos: {len(df):,}")
 
 file_id = FILE_ID + "_TEST"
 
-# 1. CSV Gemini completo
-csv_gemini = CSV.replace(".csv", "_con_sentimiento_gemini.csv")
-if os.path.exists(csv_gemini):
-    print("Cargando sentimiento desde CSV Gemini completo...")
-    df = pd.read_csv(csv_gemini, low_memory=False)
+# 1. CSV Mistral completo
+csv_mistral = CSV.replace(".csv", "_con_sentimiento_mistral.csv")
+if os.path.exists(csv_mistral):
+    print("Cargando sentimiento desde CSV Mistral completo...")
+    df = pd.read_csv(csv_mistral, low_memory=False)
     df = df[df['is_reply'] == 0].reset_index(drop=True)
-    file_id = FILE_ID + "_gemini"
+    file_id = FILE_ID + "_mistral"
 
-# 2. Checkpoint Gemini parcial
-elif os.path.exists(CSV.replace(".csv", "_gemini_checkpoint.json")):
-    print("Cargando sentimiento desde checkpoint Gemini parcial...")
-    with open(CSV.replace(".csv", "_gemini_checkpoint.json")) as f:
+# 2. Checkpoint Mistral parcial
+elif os.path.exists(CSV.replace(".csv", "_mistral_checkpoint.json")):
+    print("Cargando sentimiento desde checkpoint Mistral parcial...")
+    with open(CSV.replace(".csv", "_mistral_checkpoint.json")) as f:
         checkpoint = json.load(f)
     label_map = {"POS": "positivo", "NEG": "negativo", "NEU": "neutro"}
     df['sentimiento'] = [label_map.get(checkpoint.get(str(i), "NEU"), "neutro") for i in range(len(df))]

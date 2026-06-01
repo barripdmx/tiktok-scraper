@@ -49,7 +49,7 @@ def main():
 --- FASE 2: ANÁLISIS (PROCESAR DATOS) ---
 4.  📊 Analítica de Publicaciones: Estadísticas de vistas y likes
 5.  🗣️ Analítica de Comentarios: Nubes de palabras y actividad
-6.  🤖 Sentimiento con IA: RoBERTa · Groq · Mistral · Gemini (Pos/Neg/Neu)
+6.  🤖 Sentimiento con IA: RoBERTa · Groq · Mistral (multidimensional)
 7.  🔄 Comparativa: Analiza usuarios entre distintas cuentas
 
 --- FASE 3: VISUALIZACIÓN (REPORTES) ---
