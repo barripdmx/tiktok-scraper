@@ -41,19 +41,7 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 
 ---
 
-### 2. Google AI Studio (Gemini)
-> Proporciona el modelo `gemini-2.0-flash-lite` para análisis de sentimiento. Plan gratuito: 1.500 peticiones/día.
-
-- **Crear cuenta / entrar:** https://aistudio.google.com
-  - Necesitas una cuenta de Google (Gmail). Si ya tienes Gmail, entra directamente.
-- **Obtener API Key:** https://aistudio.google.com/app/apikey
-  - Pulsa **"Create API key"**
-  - Copia la clave (empieza por `AIza...`)
-  - Guárdala en un lugar seguro — la necesitarás en el paso de configuración
-
----
-
-### 3. Groq
+### 2. Groq
 > Proporciona el modelo `llama-3.3-70b-versatile` (muy rápido, gratuito). Plan gratuito: 14.400 peticiones/día.
 
 - **Crear cuenta:** https://console.groq.com
@@ -65,7 +53,7 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 
 ---
 
-### 4. Mistral AI
+### 3. Mistral AI
 > Proporciona el modelo `open-mistral-nemo`. Plan gratuito: 1.000 millones de tokens/mes (≈ 3.000 análisis).
 
 - **Crear cuenta:** https://console.mistral.ai
@@ -79,15 +67,14 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 
 ## 🔑 APIs que necesitas configurar
 
-Resumen de las 3 claves que necesitas:
+Resumen de las 2 claves que necesitas:
 
 | API | Para qué sirve | Límite gratuito | URL para obtenerla |
 |---|---|---|---|
-| **GEMINI_API_KEY** | Análisis de sentimiento | 1.500 req/día | https://aistudio.google.com/app/apikey |
+| **MISTRAL_API_KEY** | Análisis de sentimiento (principal) | 1B tokens/mes | https://console.mistral.ai/api-keys |
 | **GROQ_API_KEY** | Análisis de sentimiento (rápido) | 14.400 req/día | https://console.groq.com/keys |
-| **MISTRAL_API_KEY** | Análisis de sentimiento (backup) | 1B tokens/mes | https://console.mistral.ai/api-keys |
 
-> **¿Para qué sirven 3 APIs de sentimiento?** El sistema las usa en cascada: intenta primero con RoBERTa (local, sin internet), luego Groq, luego Mistral, luego Gemini. Si una falla o alcanza su límite, pasa a la siguiente automáticamente.
+> **¿Para qué sirven 2 APIs de sentimiento?** El sistema puede usar RoBERTa (local, sin internet) o un proveedor LLM. Para el análisis multidimensional se usa **Mistral** (principal); Groq queda como alternativa rápida. Si una falla o alcanza su límite, puedes cambiar a la otra.
 
 ---
 
@@ -162,16 +149,14 @@ La primera vez que ejecutes el análisis de sentimiento, se descargará automát
 3. Copia y pega este contenido, sustituyendo los valores por tus claves reales:
 
 ```env
-GEMINI_API_KEY=aquí_tu_clave_de_google_ai_studio
-GROQ_API_KEY=aquí_tu_clave_de_groq
 MISTRAL_API_KEY=aquí_tu_clave_de_mistral
+GROQ_API_KEY=aquí_tu_clave_de_groq
 ```
 
 **Ejemplo real (con claves inventadas):**
 ```env
-GEMINI_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 MISTRAL_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 > ⚠️ **Importante:** El archivo `.env` **nunca se sube a GitHub** (está en `.gitignore`). Tus claves son privadas y solo están en tu ordenador.
@@ -250,7 +235,7 @@ tiktok-scraper/
 │   ├── analysis/
 │   │   ├── analitica_publicaciones.py  ← +15 gráficas de rendimiento
 │   │   ├── analitica_comentarios.py    ← Nubes de palabras y análisis
-│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq+Mistral+Gemini
+│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq+Mistral
 │   │   └── comparativa_usuarios.py     ← Comparar múltiples cuentas
 │   │
 │   └── visualization/
@@ -290,7 +275,7 @@ Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine
 | Análisis de datos | Pandas, NumPy |
 | Gráficas | Matplotlib, Seaborn |
 | IA — Sentimiento local | pysentimiento (RoBERTa) |
-| IA — Sentimiento nube | Groq / Mistral / Gemini |
+| IA — Sentimiento nube | RoBERTa / Groq / Mistral |
 | Nubes de palabras | WordCloud |
 | Grafos de redes | NetworkX → GEXF (Gephi) |
 | Interfaz gráfica | CustomTkinter |

@@ -97,7 +97,7 @@ Opciones del menu:
 - 3 -> src/scrapers/3_tiktok_scraper_comentarios_mobile.py
 - 4 -> src/analysis/analitica_publicaciones.py
 - 5 -> src/analysis/analitica_comentarios.py
-- 6 -> src/analysis/analizar_sentimiento_gemini.py
+- 6 -> src/analysis/analizar_sentimiento.py
 - 7 -> src/analysis/comparativa_usuarios.py
 - 8 -> src/visualization/generar_informe_html.py
 - 9 -> src/visualization/crear_gexf.py
@@ -541,51 +541,49 @@ Es el analizador principal para comentarios cuando se quiere exploracion
 completa del dataset.
 
 
-12. SENTIMIENTO CON GEMINI
---------------------------
-Archivo: src/analysis/analizar_sentimiento_gemini.py
+12. SENTIMIENTO CON IA (ANALISIS MULTIDIMENSIONAL)
+--------------------------------------------------
+Archivo: src/analysis/analizar_sentimiento.py
 
 Objetivo:
-Clasificar comentarios con Gemini en lotes y guardar un CSV reutilizable.
+Clasificar comentarios con IA en lotes y guardar un CSV reutilizable. Ademas
+del sentimiento (POS/NEG/NEU) extrae sesgo politico, arquetipo, intencion,
+pain point, sarcasmo y ruido.
+
+Proveedores:
+- roberta -> pysentimiento (local, sin API key) · solo sentimiento
+- groq    -> llama-3.3-70b-versatile (100K tokens/dia gratis)
+- mistral -> open-mistral-nemo (1B tokens/mes gratis) · PRINCIPAL
 
 Entrada:
 CSV de comentarios.
 
 Salida:
 
-- CSV original + sufijo _con_sentimiento_gemini.csv
-- checkpoint _gemini_checkpoint.json
-- graficas en outputs/graphics/<proyecto>/polaridad_ia
+- CSV original + sufijo _con_sentimiento_<proveedor>.csv
+- checkpoint _<proveedor>_checkpoint.json
+- columnas: sentiment, bias, archetype, intent, pain_point, sarcasm, noise
 
 Funcionamiento:
 
 12.1. Carga de API key
-Busca GEMINI_API_KEY en config/.env. Si no existe, la pide por ventana.
+Busca MISTRAL_API_KEY (o GROQ_API_KEY) en config/.env.
 
-12.2. clasificar_lote()
-Manda lotes de comentarios a Gemini y exige JSON con etiquetas POS/NEG/NEU.
+12.2. Pre-filtro de ruido
+Marca stickers, solo-emoji y homonimos (config/taxonomia_ia.py) sin gastar tokens.
 
-12.3. Reintentos y fallback
-Si hay errores 5xx:
-
-- usa backoff exponencial;
-- reintenta varias veces;
-- puede pasar de gemini-flash-lite-latest a gemini-2.5-flash.
+12.3. clasificar_lote()
+Agrupa comentarios por video, inyecta el copy/hashtags como contexto y exige
+JSON con los campos validados contra listas cerradas (enums).
 
 12.4. Checkpoint
-Guarda el avance para no perder lotes ya procesados.
+Guarda el avance (objeto completo por comentario) para no perder lotes.
 
-12.5. Graficas finales
-Genera:
-
-- distribucion de sentimiento;
-- evolucion acumulada;
-- top comentarios positivos y negativos;
-- top usuarios positivos y negativos.
+12.5. Limite diario
+Si se agota el cupo, guarda checkpoint y se puede continuar mas tarde.
 
 Uso:
-Conviene cuando se quiere una clasificacion externa con Gemini y conservar
-el resultado en CSV para futuros procesos.
+Es el analizador de sentimiento principal del programa (punto 6 del menu).
 
 
 13. COMPARATIVA ENTRE CUENTAS
@@ -833,8 +831,8 @@ Dependencias tecnicas mas importantes del proyecto:
   Exportacion a GEXF.
 - pysentimiento
   Sentimiento local en espanol.
-- google-genai
-  Sentimiento con Gemini.
+- mistralai / groq
+  Sentimiento con IA (Mistral principal, Groq alternativa).
 - requests
   Consultas HTTP directas.
 
@@ -892,7 +890,7 @@ La parte mas importante del flujo actual es:
 - 1_tiktok_scraper_user.py o 2_tiktok_scraper_hastag_api.py
 - 3_tiktok_scraper_comentarios_mobile.py
 - analitica_publicaciones.py / analitica_comentarios.py
-- analizar_sentimiento_gemini.py
+- analizar_sentimiento.py
 - enriquecer_csv_fechas_creacion.py
 - generar_informe_html.py
 - crear_gexf.py

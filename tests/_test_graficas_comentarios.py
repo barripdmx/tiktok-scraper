@@ -24,10 +24,10 @@ df = pd.read_csv(CSV, low_memory=False)
 df = df[df['is_reply'] == 0].reset_index(drop=True)
 print(f"Comentarios directos: {len(df):,}")
 
-# Cargar sentimiento desde checkpoint Gemini
-checkpoint_path = CSV.replace(".csv", "_gemini_checkpoint.json")
+# Cargar sentimiento desde checkpoint Mistral
+checkpoint_path = CSV.replace(".csv", "_mistral_checkpoint.json")
 if os.path.exists(checkpoint_path):
-    print("Cargando sentimiento desde checkpoint Gemini...")
+    print("Cargando sentimiento desde checkpoint Mistral...")
     with open(checkpoint_path) as f:
         checkpoint = json.load(f)
     label_map = {"POS": "positivo", "NEG": "negativo", "NEU": "neutro"}

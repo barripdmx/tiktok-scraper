@@ -1,21 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-analizar_sentimiento.py — Pipeline unificado de análisis de sentimiento.
+analizar_sentimiento.py — Pipeline unificado de análisis multidimensional con IA.
 
 Proveedores disponibles:
-  roberta  → pysentimiento (local, sin API key, sin límites)
+  roberta  → pysentimiento (local, sin API key, sin límites) · solo sentimiento
   groq     → Groq / llama-3.3-70b-versatile  (100K tokens/día gratis)
   mistral  → Mistral / open-mistral-nemo      (1B tokens/mes gratis, 2 req/min)
-  gemini   → Google Gemini Flash               (con fallback a 2.5-flash)
 
 Uso desde menú:
     python src/analysis/analizar_sentimiento.py
 
 Uso programático:
     from src.analysis.analizar_sentimiento import analizar_sentimiento
-    df_result = analizar_sentimiento(df, csv_path, proveedor_id="roberta")
+    df_result = analizar_sentimiento(df, csv_path, proveedor_id="mistral")
 
-Salida estándar: columna 'sentiment' con valores POS / NEG / NEU / None.
+Salida (columnas añadidas al CSV):
+  sentiment  POS / NEG / NEU / None
+  bias       conservador / progresista / neutro / mixto / no_inferible
+  archetype  arquetipo conductual (ver config/taxonomia_ia.py)
+  intent     compra / info / difusion / castigo / ninguna
+  pain_point dolor expresado (ver config/taxonomia_ia.py)
+  sarcasm    True / False
+  noise      True / False (sticker, solo-emoji u homónimo no relacionado)
+
+Los proveedores LLM rellenan todas las columnas; RoBERTa (local) solo 'sentiment'
+y 'noise'. El análisis es aditivo: la columna 'sentiment' se conserva para
+mantener compatibilidad con informes anteriores.
 """
 
 import os
@@ -40,6 +50,11 @@ DATA_DIR   = os.path.join(BASE_DIR, "data")
 sys.path.insert(0, BASE_DIR)
 load_dotenv(os.path.join(CONFIG_DIR, ".env"))
 
+from config.taxonomia_ia import (  # noqa: E402
+    SENTIMIENTOS, SESGOS, INTENCIONES, ARQUETIPOS, PAIN_POINTS,
+    es_ruido, descripcion_arquetipos, descripcion_pain_points,
+)
+
 # ─── Configuración de proveedores ──────────────────────────────────────────
 
 PROVEEDORES = {
@@ -48,7 +63,7 @@ PROVEEDORES = {
         "tipo":        "local",
         "modelo":      "finiteautomata/bertweet-base-sentiment-analysis",
         "sleep":       0,
-        "descripcion": "Sin API key · Instantáneo · Sin límites · Mejor calidad",
+        "descripcion": "Sin API key · Instantáneo · Sin límites · Solo sentimiento",
     },
     "groq": {
         "nombre":      "Groq",
@@ -57,7 +72,7 @@ PROVEEDORES = {
         "api_key_env": "GROQ_API_KEY",
         "sleep":       0.5,
         "limite_diario": 100_000,
-        "descripcion": "100K tokens/día · Rápido · ~16 días para 46K comentarios",
+        "descripcion": "100K tokens/día · Rápido · análisis multidimensional",
     },
     "mistral": {
         "nombre":      "Mistral",
@@ -66,36 +81,44 @@ PROVEEDORES = {
         "api_key_env": "MISTRAL_API_KEY",
         "sleep":       31,
         "limite_diario": 33_000_000,
-        "descripcion": "1B tokens/mes · 2 req/min · ~8h seguidas para 46K comentarios",
-    },
-    "gemini": {
-        "nombre":      "Gemini",
-        "tipo":        "gemini",
-        "modelo":      "gemini-2.0-flash-lite",
-        "modelo_fallback": "gemini-2.5-flash",
-        "api_key_env": "GEMINI_API_KEY",
-        "sleep":       1.0,
-        "descripcion": "Google Gemini Flash · Fallback a 2.5-flash en errores 503",
+        "descripcion": "1B tokens/mes · 2 req/min · análisis multidimensional",
     },
 }
 
-BATCH_SIZE    = 50
-TELEMETRY_CSV = os.path.join(DATA_DIR, "llm_telemetry.csv")
-_TELEM_CAMPOS = [
+# Lote más pequeño que antes (50): cada comentario genera ahora 7 campos, no 1.
+BATCH_SIZE      = 30
+MAX_TOKENS      = 4000
+TRUNC_TEXTO     = 350   # antes 200 — el sarcasmo/ironía se pierde al cortar corto
+TELEMETRY_CSV   = os.path.join(DATA_DIR, "llm_telemetry.csv")
+_TELEM_CAMPOS   = [
     "timestamp", "proveedor", "modelo", "n_comentarios",
     "tokens_in", "tokens_out", "latencia_ms", "finish_reason", "parse_ok",
 ]
 
-SYSTEM_PROMPT = """Eres un clasificador de sentimiento para comentarios de TikTok en español.
-Clasifica cada comentario con exactamente una de estas etiquetas:
-- POS: opinión positiva, apoyo, halago, humor positivo
-- NEG: crítica, insulto, queja, ironía negativa
-- NEU: neutro, pregunta, sin carga emocional clara
+# Columnas que produce el análisis (en orden). 'sentiment' va primero por compat.
+DIM_CAMPOS = ["sentiment", "bias", "archetype", "intent", "pain_point", "sarcasm", "noise"]
 
-Devuelve ÚNICAMENTE un JSON array con un objeto por comentario, en el mismo orden:
-[{"index": 0, "label": "POS"}, {"index": 1, "label": "NEG"}, ...]
+PROMPT_MULTI = f"""Eres un analista de social listening para comentarios de TikTok en español.
+Analiza CADA comentario y devuelve un objeto JSON con EXACTAMENTE estos campos:
+- index: número del comentario (entero)
+- sentiment: {"|".join(SENTIMIENTOS)} (POS=positivo/apoyo, NEG=crítica/insulto/queja, NEU=neutro/pregunta)
+- bias: {"|".join(SESGOS)} (sesgo político del autor; usa 'no_inferible' si no se deduce)
+- archetype: uno de:
+{descripcion_arquetipos()}
+- intent: {"|".join(INTENCIONES)} (compra=interés en producto/link, difusion=quiere compartir, castigo=pide sanción)
+- pain_point: uno de:
+{descripcion_pain_points()}
+- sarcasm: true|false (true si hay ironía, burla o sarcasmo aunque el texto parezca literal; señales: 💀, exageración)
+- noise: true|false (true si es spam, sticker, solo-emoji u homónimo sin relación con el tema)
 
-Sin texto adicional, sin markdown, solo el JSON."""
+REGLAS:
+- Usa el CONTEXTO de los vídeos para desambiguar ironía y sesgo.
+- No inventes el sesgo: si dudas, usa 'no_inferible'.
+- Usa SOLO los valores de las listas. Si nada encaja, usa 'otro' (archetype) o 'ninguno' (pain_point).
+- Devuelve SOLO un JSON array, un objeto por comentario, en el MISMO orden. Sin markdown, sin texto extra.
+
+Ejemplo de un objeto:
+{{"index": 0, "sentiment": "NEG", "bias": "conservador", "archetype": "meme_fiscal", "intent": "castigo", "pain_point": "doble_rasero_fiscal", "sarcasm": true, "noise": false}}"""
 
 
 # ─── Excepciones ────────────────────────────────────────────────────────────
@@ -121,7 +144,7 @@ def _log_telemetria(**kwargs):
 # ─── Utilidades comunes ─────────────────────────────────────────────────────
 
 def detectar_columna_texto(df):
-    for col in ['texto', 'comment_text', 'text', 'comentario', 'content', 'body']:
+    for col in ['texto', 'comment_text', 'comentario_texto', 'text', 'comentario', 'content', 'body']:
         if col in df.columns:
             return col
     for col in df.columns:
@@ -175,6 +198,17 @@ def limpiar_json(texto):
     return t.strip()
 
 
+def _extraer_json_array(texto):
+    """Extrae el array JSON de la respuesta, ignorando preámbulos en lenguaje
+    natural (p.ej. Mistral antepone 'Aquí están los objetos JSON:')."""
+    t = limpiar_json(texto)
+    i = t.find("[")
+    j = t.rfind("]")
+    if i != -1 and j != -1 and j > i:
+        return t[i:j + 1]
+    return t
+
+
 def get_checkpoint_path(csv_file, proveedor_id):
     return csv_file.replace(".csv", f"_{proveedor_id}_checkpoint.json")
 
@@ -183,23 +217,130 @@ def load_checkpoint(checkpoint_path):
     if os.path.exists(checkpoint_path):
         with open(checkpoint_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        print(f"   ✓ Checkpoint encontrado: {len(data):,} comentarios ya clasificados")
+        print(f"   ✓ Checkpoint encontrado: {len(data):,} comentarios ya procesados")
         return data
     return {}
 
 
 def save_checkpoint(checkpoint_path, etiquetas_dict):
     with open(checkpoint_path, "w", encoding="utf-8") as f:
-        json.dump(etiquetas_dict, f)
+        json.dump(etiquetas_dict, f, ensure_ascii=False)
 
 
-# ─── Proveedor: RoBERTa local ───────────────────────────────────────────────
+# ─── Esquema multidimensional ────────────────────────────────────────────────
+
+def _obj_defecto(noise=False):
+    """Objeto por defecto (seguro) para todas las dimensiones."""
+    return {
+        "sentiment": "NEU", "bias": "no_inferible", "archetype": "otro",
+        "intent": "ninguna", "pain_point": "ninguno", "sarcasm": False, "noise": noise,
+    }
+
+
+def _es_completo(v):
+    """True si la entrada del checkpoint ya tiene el análisis multidimensional."""
+    return isinstance(v, dict) and "bias" in v
+
+
+def _parsear_item(item):
+    """Valida un objeto del modelo contra los enums cerrados."""
+    obj = _obj_defecto()
+    s = str(item.get("sentiment", item.get("label", "NEU"))).upper()
+    obj["sentiment"] = s if s in SENTIMIENTOS else "NEU"
+    b = str(item.get("bias", "no_inferible")).lower()
+    obj["bias"] = b if b in SESGOS else "no_inferible"
+    a = str(item.get("archetype", "otro")).lower()
+    obj["archetype"] = a if a in ARQUETIPOS else "otro"
+    it = str(item.get("intent", "ninguna")).lower()
+    obj["intent"] = it if it in INTENCIONES else "ninguna"
+    p = str(item.get("pain_point", "ninguno")).lower()
+    obj["pain_point"] = p if p in PAIN_POINTS else "ninguno"
+    obj["sarcasm"] = bool(item.get("sarcasm", False))
+    obj["noise"] = bool(item.get("noise", False))
+    return obj
+
+
+def _parsear_respuesta(texto_resp, n):
+    """Parsea el JSON array del modelo en una lista de n objetos validados."""
+    datos = json.loads(_extraer_json_array(texto_resp))
+    objs = [_obj_defecto() for _ in range(n)]
+    for item in datos:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index")
+        if isinstance(idx, int) and 0 <= idx < n:
+            objs[idx] = _parsear_item(item)
+    return objs
+
+
+def construir_mensaje_usuario(textos, vid_labels, contexto_map):
+    """Construye el cuerpo del mensaje: bloque de contexto + comentarios numerados."""
+    lineas = []
+    if contexto_map:
+        lineas.append("CONTEXTO DE LOS VÍDEOS (para desambiguar ironía y sesgo):")
+        for lbl, ctx in contexto_map.items():
+            extra = f" | hashtags: {ctx['hashtags']}" if ctx.get("hashtags") else ""
+            lineas.append(f"[{lbl}] {ctx['copy']}{extra}")
+        lineas.append("")
+    lineas.append("Comentarios:")
+    for i, (t, lbl) in enumerate(zip(textos, vid_labels)):
+        pref = f"[{lbl}] " if (contexto_map and lbl) else ""
+        lineas.append(f"{i}. {pref}{t[:TRUNC_TEXTO]}")
+    return f"{PROMPT_MULTI}\n\n" + "\n".join(lineas)
+
+
+# ─── Contexto de los vídeos (copy + hashtags por video_id) ───────────────────
+
+def cargar_contexto_videos(csv_file, df_f):
+    """Busca el CSV de vídeos asociado y devuelve {video_id: {copy, hashtags}}.
+
+    Best-effort: si no encuentra el CSV de vídeos, devuelve {} y el análisis
+    continúa sin contexto (degradación elegante)."""
+    if 'video_id' not in df_f.columns:
+        return {}
+
+    base = os.path.basename(csv_file)
+    dir_ = os.path.dirname(csv_file)
+    candidatos = []
+    for patron in ("_comentarios_api.csv", "_comentarios.csv", "_comments.csv"):
+        if patron in base:
+            candidatos.append(os.path.join(dir_, base.replace(patron, ".csv")))
+    # Búsqueda por prefijo de proyecto: primer *_videos.csv que comparta inicio
+    prefijo = base.split("_videos")[0].split("_comentarios")[0]
+    try:
+        for f in os.listdir(dir_):
+            if f.startswith(prefijo) and f.endswith("_videos.csv"):
+                candidatos.append(os.path.join(dir_, f))
+    except OSError:
+        pass
+
+    for ruta in candidatos:
+        if not os.path.exists(ruta):
+            continue
+        try:
+            cols = pd.read_csv(ruta, nrows=0, encoding="utf-8-sig").columns.tolist()
+            if 'video_desc' not in cols:
+                continue
+            usecols = ['video_id', 'video_desc'] + (['hashtags'] if 'hashtags' in cols else [])
+            dfv = pd.read_csv(ruta, usecols=usecols, low_memory=False, encoding="utf-8-sig")
+            ctx = {}
+            for _, r in dfv.iterrows():
+                copy = str(r.get('video_desc', '') or '')[:160].replace("\n", " ").strip()
+                htags = str(r.get('hashtags', '') or '')[:120].replace("|", " ").strip() if 'hashtags' in usecols else ""
+                ctx[str(r['video_id'])] = {"copy": copy, "hashtags": htags}
+            if ctx:
+                print(f"   🎬 Contexto de vídeos: {os.path.basename(ruta)} ({len(ctx):,} vídeos)")
+                return ctx
+        except Exception:
+            continue
+    print("   ℹ️  Sin CSV de vídeos asociado — el análisis continúa sin contexto.")
+    return {}
+
+
+# ─── Proveedor: RoBERTa local (solo sentimiento) ─────────────────────────────
 
 def clasificar_roberta(df_f, col_texto):
-    """
-    Clasifica con pysentimiento (RoBERTa). Sin API, sin checkpoint, instantáneo.
-    Devuelve lista de etiquetas POS/NEG/NEU (misma longitud que df_f).
-    """
+    """Clasifica con pysentimiento (RoBERTa). Sin API, instantáneo. Solo POS/NEG/NEU."""
     try:
         from pysentimiento import create_analyzer
     except ImportError:
@@ -214,7 +355,6 @@ def clasificar_roberta(df_f, col_texto):
     for i, texto in enumerate(df_f[col_texto].fillna("")):
         try:
             result = analyzer.predict(str(texto)[:512])
-            # pysentimiento devuelve POS / NEG / NEU
             etiquetas.append(result.output.upper())
         except Exception:
             etiquetas.append(None)
@@ -263,40 +403,33 @@ def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens
                 getattr(u, "completion_tokens", 0))
 
 
-def clasificar_lote_openai_compat(client, proveedor_id, modelo, textos):
-    """Clasifica un lote. Devuelve lista de etiquetas o None si error puntual."""
-    numerados = "\n".join(f"{i}. {t[:200]}" for i, t in enumerate(textos))
+def clasificar_lote_openai_compat(client, proveedor_id, modelo, prompt_user, n):
+    """Clasifica un lote. Devuelve lista de n objetos dict o None si error puntual."""
     mensajes = [
-        {"role": "system", "content": "Eres un clasificador de sentimientos experto en español."},
-        {"role": "user",   "content": f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"},
+        {"role": "system", "content": "Eres un analista de social listening experto en español."},
+        {"role": "user",   "content": prompt_user},
     ]
     t0 = time.time()
     try:
         texto_resp, finish_reason, tok_in, tok_out = _llamar_api_openai_compat(
-            client, proveedor_id, modelo, mensajes, max_tokens=1500)
+            client, proveedor_id, modelo, mensajes, max_tokens=MAX_TOKENS)
         latencia_ms = int((time.time() - t0) * 1000)
         texto_resp = limpiar_json(texto_resp)
 
         if finish_reason == "length":
             print("   ⚠️ Respuesta truncada (finish_reason=length). Lote omitido.")
             _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
-                            modelo=modelo, n_comentarios=len(textos), tokens_in=tok_in,
+                            modelo=modelo, n_comentarios=n, tokens_in=tok_in,
                             tokens_out=tok_out, latencia_ms=latencia_ms,
                             finish_reason=finish_reason, parse_ok=False)
             return None
 
-        datos = json.loads(texto_resp)
-        etiquetas = ["NEU"] * len(textos)
-        for item in datos:
-            idx = item.get("index")
-            label = str(item.get("label", "NEU")).upper()
-            if idx is not None and 0 <= idx < len(textos):
-                etiquetas[idx] = label if label in ("POS", "NEG", "NEU") else "NEU"
+        objs = _parsear_respuesta(texto_resp, n)
         _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
-                        modelo=modelo, n_comentarios=len(textos), tokens_in=tok_in,
+                        modelo=modelo, n_comentarios=n, tokens_in=tok_in,
                         tokens_out=tok_out, latencia_ms=latencia_ms,
                         finish_reason=finish_reason, parse_ok=True)
-        return etiquetas
+        return objs
 
     except Exception as e:
         err = str(e)
@@ -308,68 +441,12 @@ def clasificar_lote_openai_compat(client, proveedor_id, modelo, textos):
         return None
 
 
-# ─── Proveedor: Gemini ───────────────────────────────────────────────────────
-
-def clasificar_lote_gemini(client, modelo, textos, modelo_fallback=None):
-    """Clasifica un lote con Gemini. Devuelve lista de etiquetas o None si fallo."""
-    numerados = "\n".join(f"{i}. {t[:200]}" for i, t in enumerate(textos))
-    prompt = f"{SYSTEM_PROMPT}\n\nComentarios:\n{numerados}"
-
-    t0 = time.time()
-    for intento in range(3):
-        try:
-            mod_actual = modelo if intento < 2 else (modelo_fallback or modelo)
-            response = client.models.generate_content(
-                model=mod_actual,
-                contents=prompt,
-            )
-            latencia_ms = int((time.time() - t0) * 1000)
-            texto_resp = limpiar_json(response.text)
-
-            tok_in  = getattr(getattr(response, "usage_metadata", None), "prompt_token_count", 0) or 0
-            tok_out = getattr(getattr(response, "usage_metadata", None), "candidates_token_count", 0) or 0
-
-            datos = json.loads(texto_resp)
-            etiquetas = ["NEU"] * len(textos)
-            for item in datos:
-                idx = item.get("index")
-                label = str(item.get("label", "NEU")).upper()
-                if idx is not None and 0 <= idx < len(textos):
-                    etiquetas[idx] = label if label in ("POS", "NEG", "NEU") else "NEU"
-            _log_telemetria(timestamp=datetime.now().isoformat(), proveedor="gemini",
-                            modelo=mod_actual, n_comentarios=len(textos), tokens_in=tok_in,
-                            tokens_out=tok_out, latencia_ms=latencia_ms,
-                            finish_reason="stop", parse_ok=True)
-            return etiquetas
-
-        except Exception as e:
-            err = str(e)
-            if "503" in err or "overloaded" in err.lower() or "unavailable" in err.lower():
-                wait = 15 * (intento + 1)
-                print(f"   ⚠️ Gemini 503 (intento {intento+1}/3), esperando {wait}s…")
-                time.sleep(wait)
-            else:
-                print(f"   ⚠️ Error Gemini: {err[:150]}")
-                return None
-    print("   ❌ Gemini: reintentos agotados, lote omitido.")
-    return None
-
-
 # ─── Dispatcher principal ────────────────────────────────────────────────────
 
 def analizar_sentimiento(df, csv_file, proveedor_id):
-    """
-    Analiza sentimiento del DataFrame con el proveedor indicado.
+    """Analiza (multidimensional) el DataFrame con el proveedor indicado.
 
-    Parámetros
-    ----------
-    df          : pd.DataFrame con columna de texto
-    csv_file    : ruta al CSV original (para checkpoint y salida)
-    proveedor_id: "roberta" | "groq" | "mistral" | "gemini"
-
-    Devuelve
-    --------
-    pd.DataFrame con columna 'sentiment' (POS/NEG/NEU/None), o None si error.
+    Devuelve el DataFrame con las columnas de DIM_CAMPOS, o None si error.
     """
     cfg = PROVEEDORES.get(proveedor_id)
     if cfg is None:
@@ -383,14 +460,15 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
         print(f"  Modelo    : {cfg['modelo']}")
     print(f"{'─'*60}")
 
-    # Detectar columna de texto
+    # Normaliza BOM en cabeceras (algunos CSV vienen con '﻿' en la 1ª columna)
+    df = df.rename(columns=lambda c: c.lstrip("﻿") if isinstance(c, str) else c)
+
     col_texto = detectar_columna_texto(df)
     if col_texto is None:
         print(f"❌ Columna de texto no encontrada. Columnas: {list(df.columns)}")
         return None
     print(f"  Columna texto : '{col_texto}'")
 
-    # Filtrar replies
     if 'is_reply' in df.columns:
         df_f = df[df['is_reply'] == 0].reset_index(drop=True)
         print(f"  Comentarios directos: {len(df_f):,} (de {len(df):,} totales)")
@@ -402,40 +480,60 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
         print("  ⚠️ No hay comentarios para analizar")
         return None
 
-    # ── RoBERTa local (sin API, sin checkpoint) ──────────────────────────────
+    # ── RoBERTa local (solo sentimiento, sin checkpoint) ─────────────────────
     if cfg["tipo"] == "local":
         etiquetas_lista = clasificar_roberta(df_f, col_texto)
         if etiquetas_lista is None:
             return None
         df_f['sentiment'] = etiquetas_lista
+        for campo in ["bias", "archetype", "intent", "pain_point", "sarcasm"]:
+            df_f[campo] = None
+        df_f['noise'] = [es_ruido(t) for t in df_f[col_texto]]
         _guardar_y_mostrar(df_f, csv_file, proveedor_id)
         return df_f
 
-    # ── APIs externas (Groq / Mistral / Gemini) ──────────────────────────────
+    # ── APIs externas (Groq / Mistral) ───────────────────────────────────────
     api_key = os.getenv(cfg.get("api_key_env", ""), "")
     if not api_key:
         print(f"  ❌ {cfg.get('api_key_env')} no configurada en config/.env")
         return None
 
-    # Clave estable por comentario
     col_id = detectar_columna_id(df_f)
     claves = [clave_estable(df_f.iloc[i].to_dict(), col_id, col_texto)
               for i in range(len(df_f))]
     fuente = f"columna '{col_id}'" if col_id else "hash MD5 del texto"
     print(f"  Clave checkpoint  : {fuente}")
 
-    # Checkpoint
     ckpt_path = get_checkpoint_path(csv_file, proveedor_id)
     etiquetas = load_checkpoint(ckpt_path)
     etiquetas = _migrar_checkpoint_si_necesario(ckpt_path, etiquetas, len(df_f))
 
-    pendientes = [i for i in range(len(df_f)) if claves[i] not in etiquetas]
+    pendientes = [i for i in range(len(df_f)) if not _es_completo(etiquetas.get(claves[i]))]
+    print(f"  Por procesar      : {len(pendientes):,}")
+
+    # Pre-filtro de ruido/homónimos (no gasta tokens)
+    n_ruido = 0
+    restantes = []
+    for idx in pendientes:
+        if es_ruido(df_f.loc[idx, col_texto]):
+            etiquetas[claves[idx]] = _obj_defecto(noise=True)
+            n_ruido += 1
+        else:
+            restantes.append(idx)
+    pendientes = restantes
+    if n_ruido:
+        print(f"  🧹 Pre-filtro de ruido: {n_ruido:,} marcados (sticker/emoji/homónimo)")
+        save_checkpoint(ckpt_path, etiquetas)
+
+    # Ordenar por vídeo para coherencia de contexto entre lotes
+    if 'video_id' in df_f.columns:
+        pendientes.sort(key=lambda i: str(df_f.loc[i, 'video_id']))
+
     n_pendientes = len(pendientes)
-    print(f"  Por procesar      : {n_pendientes:,}")
 
     # Estimación de tiempo
     if proveedor_id == "groq":
-        tokens_est = n_pendientes * 35
+        tokens_est = n_pendientes * 60
         dias_est = tokens_est / cfg["limite_diario"]
         if dias_est > 1:
             print(f"  ⏱️  ~{dias_est:.0f} días con Groq free ({tokens_est:,} tokens / 100K/día)")
@@ -443,43 +541,56 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
         horas_est = (n_pendientes / BATCH_SIZE) * cfg["sleep"] / 3600
         print(f"  ⏱️  ~{horas_est:.1f}h con Mistral free (2 req/min)")
 
+    # Contexto de los vídeos (copy + hashtags)
+    contexto_videos = cargar_contexto_videos(csv_file, df_f)
+
     # Crear cliente
     try:
         if cfg["tipo"] == "openai_compat":
             client = _crear_cliente_openai_compat(proveedor_id, api_key)
-        elif cfg["tipo"] == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            client = genai
         else:
             raise ValueError(f"Tipo de proveedor no soportado: {cfg['tipo']}")
-    except ImportError as e:
-        pkg_map = {"groq": "groq", "mistral": "mistralai", "gemini": "google-generativeai"}
+    except ImportError:
+        pkg_map = {"groq": "groq", "mistral": "mistralai"}
         print(f"  ❌ Librería no instalada. Ejecuta: pip install {pkg_map.get(proveedor_id, '')}")
         return None
+
+    tiene_vid = 'video_id' in df_f.columns and bool(contexto_videos)
 
     # Bucle de clasificación
     try:
         for lote_num, i in enumerate(range(0, n_pendientes, BATCH_SIZE)):
             indices_lote = pendientes[i:i + BATCH_SIZE]
-            textos = [str(df_f.loc[idx, col_texto])[:200] for idx in indices_lote]
+            textos = [str(df_f.loc[idx, col_texto])[:TRUNC_TEXTO] for idx in indices_lote]
 
+            # Etiquetas de vídeo + mapa de contexto del lote
+            contexto_map, vid_labels = {}, []
+            if tiene_vid:
+                label_de_vid = {}
+                for idx in indices_lote:
+                    vid = str(df_f.loc[idx, 'video_id'])
+                    if vid not in label_de_vid:
+                        lbl = f"v{len(label_de_vid)+1}"
+                        label_de_vid[vid] = lbl
+                        ctx = contexto_videos.get(vid)
+                        if ctx and (ctx["copy"] or ctx["hashtags"]):
+                            contexto_map[lbl] = ctx
+                    vid_labels.append(label_de_vid[vid])
+            else:
+                vid_labels = [""] * len(indices_lote)
+
+            prompt_user = construir_mensaje_usuario(textos, vid_labels, contexto_map)
             print(f"  Lote {lote_num+1:>4}: {len(textos)} coment...", end=" ", flush=True)
 
-            if cfg["tipo"] == "openai_compat":
-                resultado = clasificar_lote_openai_compat(
-                    client, proveedor_id, cfg["modelo"], textos)
-            else:  # gemini
-                resultado = clasificar_lote_gemini(
-                    client, cfg["modelo"], textos,
-                    modelo_fallback=cfg.get("modelo_fallback"))
+            resultado = clasificar_lote_openai_compat(
+                client, proveedor_id, cfg["modelo"], prompt_user, len(indices_lote))
 
             if resultado is not None:
-                for idx, label in zip(indices_lote, resultado):
-                    etiquetas[claves[idx]] = label
-                print(f"✓  (clasificados: {len(etiquetas):,})")
+                for idx, obj in zip(indices_lote, resultado):
+                    etiquetas[claves[idx]] = obj
+                print(f"✓  (procesados: {len(etiquetas):,})")
             else:
-                print("⚠️  omitido — error de API, no se escribe NEU")
+                print("⚠️  omitido — error de API, no se escribe nada")
 
             if (lote_num + 1) % 10 == 0:
                 save_checkpoint(ckpt_path, etiquetas)
@@ -488,38 +599,65 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
             time.sleep(cfg["sleep"])
 
     except RateLimitDiaria:
-        print(f"\n⏸️  LÍMITE DIARIO ALCANZADO")
-        print(f"   Clasificados: {len(etiquetas):,} / {len(df_f):,}")
+        print("\n⏸️  LÍMITE DIARIO ALCANZADO")
+        print(f"   Procesados: {len(etiquetas):,} / {len(df_f):,}")
         save_checkpoint(ckpt_path, etiquetas)
         print("   ✅ Checkpoint guardado. Vuelve mañana para continuar.")
         return None
     except KeyboardInterrupt:
-        print(f"\n⏹️  Interrumpido por el usuario.")
+        print("\n⏹️  Interrumpido por el usuario.")
         save_checkpoint(ckpt_path, etiquetas)
         print(f"   ✅ {len(etiquetas):,} comentarios guardados en checkpoint.")
         return None
 
     save_checkpoint(ckpt_path, etiquetas)
-
-    # Aplicar etiquetas (None para no clasificados)
-    df_f['sentiment'] = [etiquetas.get(k, None) for k in claves]
+    _aplicar_columnas(df_f, claves, etiquetas)
     _guardar_y_mostrar(df_f, csv_file, proveedor_id)
     return df_f
 
 
+def _campo(obj, campo):
+    """Extrae un campo del objeto del checkpoint (tolera formato antiguo string)."""
+    if isinstance(obj, dict):
+        return obj.get(campo)
+    if isinstance(obj, str) and campo == "sentiment":
+        return obj
+    return None
+
+
+def _aplicar_columnas(df_f, claves, etiquetas):
+    """Vuelca las dimensiones del checkpoint a columnas del DataFrame."""
+    for campo in DIM_CAMPOS:
+        df_f[campo] = [_campo(etiquetas.get(k), campo) for k in claves]
+
+
 def _guardar_y_mostrar(df_f, csv_file, proveedor_id):
-    """Muestra estadísticas y guarda el CSV resultado."""
+    """Muestra estadísticas multidimensionales y guarda el CSV resultado."""
     total = len(df_f)
     clasificados = df_f['sentiment'].notna().sum()
     sin_clasificar = total - clasificados
-    stats = df_f['sentiment'].value_counts(dropna=True)
 
     print(f"\n  Resultados ({clasificados:,} clasificados / {total:,} total):")
-    for label, count in stats.items():
+    print("  · Sentimiento:")
+    for label, count in df_f['sentiment'].value_counts(dropna=True).items():
         bar = "█" * int(count / total * 30)
-        print(f"    {label}: {count:>7,} ({count/total*100:.1f}%) {bar}")
+        print(f"      {label}: {count:>7,} ({count/total*100:.1f}%) {bar}")
+
+    if 'bias' in df_f.columns and df_f['bias'].notna().any():
+        print("  · Sesgo político:")
+        for label, count in df_f['bias'].value_counts(dropna=True).items():
+            print(f"      {label}: {count:>7,} ({count/total*100:.1f}%)")
+
+    if 'noise' in df_f.columns:
+        n_noise = int(df_f['noise'].fillna(False).astype(bool).sum())
+        if n_noise:
+            print(f"  · Ruido filtrado: {n_noise:,} ({n_noise/total*100:.1f}%)")
+    if 'sarcasm' in df_f.columns and df_f['sarcasm'].notna().any():
+        n_sarc = int(df_f['sarcasm'].fillna(False).astype(bool).sum())
+        print(f"  · Sarcasmo/ironía: {n_sarc:,} ({n_sarc/total*100:.1f}%)")
+
     if sin_clasificar > 0:
-        print(f"    ⚠️  Sin clasificar: {sin_clasificar:,} ({sin_clasificar/total*100:.1f}%)"
+        print(f"  ⚠️  Sin clasificar: {sin_clasificar:,} ({sin_clasificar/total*100:.1f}%)"
               " — errores de API, vuelve a ejecutar para reintentar")
 
     sufijo = "roberta" if proveedor_id == "roberta" else proveedor_id
@@ -532,7 +670,7 @@ def _guardar_y_mostrar(df_f, csv_file, proveedor_id):
 
 def seleccionar_proveedor():
     print("\n" + "=" * 60)
-    print("  ¿Qué proveedor de IA usar para el análisis de sentimiento?")
+    print("  ¿Qué proveedor de IA usar para el análisis?")
     print("=" * 60)
     ids = list(PROVEEDORES.keys())
     for i, pid in enumerate(ids, 1):
@@ -559,11 +697,10 @@ def seleccionar_proveedor():
 
 def main():
     print("=" * 60)
-    print("  ANÁLISIS DE SENTIMIENTO CON IA")
-    print("  RoBERTa · Groq · Mistral · Gemini")
+    print("  ANÁLISIS MULTIDIMENSIONAL CON IA")
+    print("  Sentimiento · Sesgo · Arquetipo · Intención · Pain points")
     print("=" * 60)
 
-    # Seleccionar CSV
     root = tk.Tk()
     root.withdraw()
     root.attributes('-topmost', True)

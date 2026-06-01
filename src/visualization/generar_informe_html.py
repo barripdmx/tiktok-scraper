@@ -331,29 +331,187 @@ def find_sentiment_csv(csv_path: str) -> tuple[str, str]:
     base = os.path.splitext(csv_path)[0]
     data_dir = os.path.dirname(csv_path)
     candidatos = [
-        (base + "_con_sentimiento_gemini.csv",   "sentimiento"),
-        (base + "_con_sentimientos_groq.csv",     "sentiment"),
-        (base + "_con_sentimientos_mistral.csv",  "sentiment"),
+        base + "_con_sentimiento_mistral.csv",
+        base + "_con_sentimiento_groq.csv",
+        base + "_con_sentimiento_roberta.csv",
+        base + "_con_sentimientos_mistral.csv",   # nombres heredados
+        base + "_con_sentimientos_groq.csv",
     ]
     # También buscar en data/ por nombre de proyecto
     nombre = os.path.basename(base).split("_videos")[0]
-    for f in os.listdir(data_dir):
-        if f.startswith(nombre) and "sentimiento" in f.lower() and f.endswith(".csv"):
-            ruta = os.path.join(data_dir, f)
-            col = "sentimiento" if "gemini" in f else "sentiment"
-            if (ruta, col) not in candidatos:
-                candidatos.append((ruta, col))
+    try:
+        for f in os.listdir(data_dir):
+            if f.startswith(nombre) and "sentimiento" in f.lower() and f.endswith(".csv"):
+                ruta = os.path.join(data_dir, f)
+                if ruta not in candidatos:
+                    candidatos.append(ruta)
+    except OSError:
+        pass
 
-    for ruta, col in candidatos:
+    # La columna de sentimiento se llama 'sentiment' en el pipeline unificado
+    # ('sentimiento' se acepta solo por compatibilidad con CSV antiguos).
+    for ruta in candidatos:
         if os.path.exists(ruta):
             try:
-                cols = pd.read_csv(ruta, nrows=0).columns.tolist()
-                if col in cols:
+                cols = pd.read_csv(ruta, nrows=0, encoding="utf-8-sig").columns.tolist()
+                col = next((c for c in ("sentiment", "sentimiento") if c in cols), None)
+                if col:
                     print(f"   🎭 CSV sentimiento: {os.path.basename(ruta)}")
                     return ruta, col
             except Exception:
                 pass
     return "", ""
+
+
+# Etiquetas legibles para las dimensiones del análisis multidimensional (Punto 6)
+_BIAS_PRETTY = {"conservador": "Conservador", "progresista": "Progresista",
+                "neutro": "Neutro", "mixto": "Mixto", "no_inferible": "No inferible"}
+_BIAS_COLOR = {"Conservador": "#2C3E50", "Progresista": "#A93226", "Neutro": "#7F8C8D",
+               "Mixto": "#8E44AD", "No inferible": "#BDC3C7"}
+_ARQ_PRETTY = {
+    "testigo_indignado": "Testigo indignado", "reactor_bajo_senal": "Reactor de baja señal",
+    "meme_fiscal": "Fiscal del meme", "moralista_punitivo": "Moralista punitivo",
+    "amplificador": "Amplificador", "redirector_partidista": "Redirector partidista",
+    "defensor_esceptico": "Defensor escéptico", "igualador_antisistema": "Igualador antisistema",
+    "expansor_conspirativo": "Expansor conspirativo", "buscador_contexto": "Buscador de contexto",
+    "otro": "Otro",
+}
+_PAIN_PRETTY = {
+    "doble_rasero_fiscal": "Doble rasero fiscal", "fatiga_corrupcion": "Fatiga de corrupción",
+    "judicializacion_selectiva": "Judicialización selectiva", "microeconomia": "Microeconomía (bolsillo)",
+    "perdida_terreno_cultural": "Pérdida terreno cultural", "sobreproduccion_falsedad": "Sobreproducción / falsedad",
+    "otro": "Otro",
+}
+_INTENT_PRETTY = {"compra": "🛒 Compra / interés", "difusion": "📣 Difusión",
+                  "castigo": "⚖️ Castigo / sanción", "info": "❓ Pide información"}
+
+
+def _barra_dim_b64(pares, colores):
+    """Barra horizontal minimalista (base64 PNG) para una dimensión categórica."""
+    import io, base64 as _b64
+    labels  = [p[0] for p in pares]
+    valores = [p[1] for p in pares]
+    total = sum(valores) or 1
+    fig, ax = plt.subplots(figsize=(8, max(1.6, 0.5 * len(labels) + 0.6)))
+    fig.patch.set_facecolor("#FFFFFF")
+    bars = ax.barh(labels[::-1], valores[::-1], height=0.55, edgecolor="none",
+                   color=[colores.get(l, "#999999") for l in labels[::-1]])
+    for bar, val in zip(bars, valores[::-1]):
+        ax.text(bar.get_width() + max(valores) * 0.01, bar.get_y() + bar.get_height() / 2,
+                f"{val:,}  ({val/total*100:.1f}%)", va="center", fontsize=9, color="#222222")
+    ax.set_xlim(0, max(valores) * 1.30)
+    ax.set_facecolor("#FFFFFF")
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="x", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555", labelsize=9)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{int(v):,}"))
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+    plt.close()
+    return _b64.b64encode(buf.getvalue()).decode()
+
+
+def _tabla_dim(counts, pretty, total, excluir=(), top=6) -> str:
+    """Tabla HTML (categoría · nº · %) para arquetipos o pain points."""
+    filas = ""
+    n = 0
+    for k, v in counts.items():
+        if k in excluir or n >= top:
+            continue
+        filas += (f'<tr><td style="padding:6px 12px;">{pretty.get(str(k), str(k))}</td>'
+                  f'<td style="padding:6px 12px;text-align:right;">{fmt_num(int(v))}</td>'
+                  f'<td style="padding:6px 12px;text-align:right;color:var(--muted);">'
+                  f'{v/total*100:.1f}%</td></tr>')
+        n += 1
+    if not filas:
+        return ""
+    return (f'<table style="border-collapse:collapse;width:100%;max-width:520px;font-size:14px;">'
+            f'<tbody>{filas}</tbody></table>')
+
+
+def build_dimensiones_extra(df_s) -> str:
+    """Bloques HTML para las dimensiones avanzadas (sesgo, arquetipo, intención,
+    pain points, sarcasmo/ruido). Solo se generan las columnas que existen —
+    degradación elegante con CSV de solo-sentimiento."""
+    total = len(df_s)
+    if total == 0:
+        return ""
+    bloques = []
+
+    # 1) Sesgo político
+    if 'bias' in df_s.columns and df_s['bias'].notna().any():
+        counts = df_s['bias'].map(lambda x: _BIAS_PRETTY.get(str(x), str(x))).value_counts()
+        orden = [l for l in ["Conservador", "Progresista", "Mixto", "Neutro", "No inferible"]
+                 if l in counts.index]
+        pares = [(l, int(counts[l])) for l in orden]
+        b64 = _barra_dim_b64(pares, _BIAS_COLOR)
+        bloques.append(f"""
+    <h3 style="margin-top:28px;">Segmentación por sesgo político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">Ayuda analítica, no verdad absoluta: el sesgo es interpretativo.</p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Sesgo político"
+        style="max-width:600px;border-radius:8px;background:#fff;"></figure>""")
+
+    # 2) Arquetipos conductuales
+    if 'archetype' in df_s.columns and df_s['archetype'].notna().any():
+        tabla = _tabla_dim(df_s['archetype'].value_counts(), _ARQ_PRETTY, total, top=8)
+        if tabla:
+            bloques.append(f"""
+    <h3 style="margin-top:28px;">Arquetipos de comentarista</h3>
+    {tabla}""")
+
+    # 3) Intención de acción
+    if 'intent' in df_s.columns and df_s['intent'].notna().any():
+        counts = df_s['intent'].value_counts()
+        kpis = ""
+        for key in ["compra", "difusion", "castigo", "info"]:
+            n = int(counts.get(key, 0))
+            if n == 0:
+                continue
+            kpis += (f'<div class="kpi"><div class="kpi-value">{fmt_num(n)}</div>'
+                     f'<div class="kpi-label">{_INTENT_PRETTY[key]} · {n/total*100:.1f}%</div></div>')
+        if kpis:
+            bloques.append(f"""
+    <h3 style="margin-top:28px;">Intención de acción detectada</h3>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));max-width:760px;">{kpis}</div>""")
+
+    # 4) Pain points
+    if 'pain_point' in df_s.columns and df_s['pain_point'].notna().any():
+        tabla = _tabla_dim(df_s['pain_point'].value_counts(), _PAIN_PRETTY, total,
+                           excluir=("ninguno",), top=6)
+        if tabla:
+            bloques.append(f"""
+    <h3 style="margin-top:28px;">Puntos de dolor (pain points)</h3>
+    {tabla}""")
+
+    # 5) Sarcasmo y ruido
+    mini = ""
+    if 'sarcasm' in df_s.columns and df_s['sarcasm'].notna().any():
+        n = int(df_s['sarcasm'].fillna(False).astype(bool).sum())
+        mini += (f'<div class="kpi"><div class="kpi-icon">🤨</div><div class="kpi-value">{fmt_num(n)}</div>'
+                 f'<div class="kpi-label">Sarcasmo/ironía · {n/total*100:.1f}%</div></div>')
+    if 'noise' in df_s.columns and df_s['noise'].notna().any():
+        n = int(df_s['noise'].fillna(False).astype(bool).sum())
+        mini += (f'<div class="kpi"><div class="kpi-icon">🧹</div><div class="kpi-value">{fmt_num(n)}</div>'
+                 f'<div class="kpi-label">Ruido filtrado · {n/total*100:.1f}%</div></div>')
+    if mini:
+        bloques.append(f"""
+    <h3 style="margin-top:28px;">Señales culturales</h3>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));max-width:540px;">{mini}</div>""")
+
+    if not bloques:
+        return ""
+    return f"""
+  <section>
+    <h2><span class="acc-p">◆</span> Análisis avanzado con IA
+      <span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:10px;">
+        (sesgo · arquetipo · intención · pain points)
+      </span>
+    </h2>{''.join(bloques)}
+  </section>"""
 
 
 def build_sentiment_section(sentiment_csv: str, col: str) -> str:
@@ -427,6 +585,7 @@ def build_sentiment_section(sentiment_csv: str, col: str) -> str:
                     f' — vuelve a ejecutar el análisis de sentimiento para completarlos.</p>')
 
     proveedor = os.path.basename(sentiment_csv).split("_con_sentimiento")[-1].replace(".csv", "").strip("_")
+    extra = build_dimensiones_extra(df_s)
     return f"""
   <section>
     <h2><span class="acc-p">◆</span> Análisis de Sentimiento
@@ -441,7 +600,7 @@ def build_sentiment_section(sentiment_csv: str, col: str) -> str:
            style="max-width:600px;border-radius:8px;background:#fff;">
     </figure>
     {aviso_sc}
-  </section>"""
+  </section>{extra}"""
 
 
 def build_file_id_candidates(file_id: str) -> list[str]:

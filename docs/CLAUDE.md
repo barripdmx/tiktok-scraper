@@ -2,13 +2,13 @@
 
 ## Descripción
 Herramienta de scraping y analítica de TikTok en `H:\TikTok`.
-Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, google-genai**. Python. Windows 10.
+Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, mistralai, groq, pysentimiento**. Python. Windows 10.
 
 ## Estructura de carpetas
 - `data_tiktok/` — Salida de CSVs y JSONs (symlink a Google Drive → `I:\Mi unidad\data_tiktok`)
 - `gráficas/{project}/publicaciones/` — Gráficas de vídeos (`analitica_publicaciones.py`)
 - `gráficas/{project}/comentarios/` — Gráficas de comentarios (`analitica_comentarios.py`)
-- `gráficas/{project}/polaridad_ia/` — Gráficas de sentimiento IA (`analitica_comentarios.py` + `analizar_sentimiento_gemini.py`)
+- `gráficas/{project}/polaridad_ia/` — Gráficas de sentimiento IA (`analitica_comentarios.py` + `analizar_sentimiento.py`)
 - `graficas_redes/` — Imágenes para redes sociales
 - `assets/tiktok_logo.jpg` — Logo TikTok para watermark en gráficas
 - `playwright_auth/` — Estado de sesión guardado (`tiktok.json`)
@@ -27,7 +27,7 @@ Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, google
 |--------|---------|--------|
 | `analitica_publicaciones.py` | Nubes, evolución, temporal, heatmap de vídeos | `gráficas/{project}/publicaciones/` |
 | `analitica_comentarios.py` | Nubes, comunidad, temporal, sentimiento, emojis | `comentarios/` y `polaridad_ia/` |
-| `analizar_sentimiento_gemini.py` | Sentimiento con Gemini Flash Lite + gráficas | `gráficas/{project}/polaridad_ia/` |
+| `analizar_sentimiento.py` | Análisis multidimensional con IA (RoBERTa/Groq/Mistral) | CSV `_con_sentimiento_*.csv` |
 | `analitica_redes.py` | KPIs y gráficas para redes sociales | `graficas_redes/` |
 | `comparativa_usuarios.py` | Sentimiento comparativo entre múltiples cuentas | — |
 
@@ -36,7 +36,7 @@ Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, google
 |--------|-------------|
 | `_test_graficas_publicaciones.py` | Todas las gráficas de publicaciones |
 | `_test_graficas_comentarios.py` | Todas las gráficas de comentarios |
-| `_test_graficas_gemini.py` | Todas las gráficas de polaridad IA |
+| `_test_graficas_sentimiento.py` | Gráficas de polaridad IA |
 
 ## Scripts de grafos (Gephi)
 - `crear_gexf.py` / `grafo_comentarios.py` → exportan GEXF para Gephi
@@ -80,22 +80,20 @@ Todos los scripts comparten el mismo estilo visual:
 Las nubes con banda de título de color DEBEN usar `GridSpec(3, 2, height_ratios=[0.06, 0.88, 0.06])`.
 **Nunca** usar `ax.add_patch(Rectangle)` ni `ax.text` dentro del eje del wordcloud — se solapa con la imagen.
 
-## Sentimiento Gemini
-- Modelo: `gemini-flash-lite-latest`, fallback `gemini-2.5-flash`
-- Checkpoint: `{csv}_gemini_checkpoint.json` — dict `{str(index): "POS"|"NEG"|"NEU"}`
-- Índices del checkpoint = `df[df['is_reply']==0].reset_index(drop=True)` — NO filtrar vacíos antes de mapear
-- **Corrección post-procesado obligatoria para cuentas políticas**:
-  1. Voto mayoritario por texto (textos idénticos → etiqueta más frecuente)
-  2. Lista `neg_forzado` con eslóganes de oposición → forzar NEG
-- Sin corrección, "viva vox" sale POS porque el modelo no tiene contexto político
+## Sentimiento IA (análisis multidimensional)
+- Pipeline unificado: `analizar_sentimiento.py` (RoBERTa local / Groq / Mistral). **Mistral** es el proveedor principal.
+- Checkpoint: `{csv}_{proveedor}_checkpoint.json` — dict `{clave_estable: {sentiment, bias, archetype, intent, pain_point, sarcasm, noise}}`
+- Clave estable = `comment_id` si existe, si no hash MD5 del texto (no posición)
+- Taxonomía cerrada (enums + ruido/homónimos) en `config/taxonomia_ia.py`
+- Contexto del vídeo (copy/hashtags) se inyecta por `video_id` para desambiguar ironía y sesgo
 
 ## Flujo de trabajo típico
 1. `1-guardar_sesion.py` → guardar sesión
 2. `1_tiktok_scraper_user.py` o `1_tiktok_scraper_hastag.py` → CSV de vídeos
 3. `1_tiktok_scraper_comentarios.py` → CSV de comentarios (opcional)
 4. `analitica_publicaciones.py` → gráficas de vídeos
-5. `analizar_sentimiento_gemini.py` → sentimiento IA (puede tardar horas)
-6. `analitica_comentarios.py` → gráficas de comentarios (requiere checkpoint Gemini)
+5. `analizar_sentimiento.py` → sentimiento IA multidimensional con Mistral (puede tardar horas)
+6. `analitica_comentarios.py` → gráficas de comentarios (requiere checkpoint de sentimiento)
 7. `generar_informe_html.py` → informe HTML entregable
 
 ## Próximo desarrollo — scraper de fecha de creación de cuentas
