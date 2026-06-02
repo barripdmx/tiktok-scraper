@@ -435,30 +435,119 @@ def _tabla_dim(counts, pretty, total, excluir=(), top=6) -> str:
 
 def build_dimensiones_extra(df_s) -> str:
     """Bloques HTML para las dimensiones avanzadas (sesgo, arquetipo, intención,
-    pain points, sarcasmo/ruido). Solo se generan las columnas que existen —
-    degradación elegante con CSV de solo-sentimiento."""
+    pain points, sarcasmo/ruido). Incluye 6 gráficas visuales cuando existen las columnas.
+    Degradación elegante con CSV de solo-sentimiento."""
     total = len(df_s)
     if total == 0:
         return ""
     bloques = []
 
-    # 1) Sesgo político
+    # Importar el módulo de gráficas multidimensionales
+    try:
+        from grafica_multidimensional import (
+            grafica_heatmap_sesgo_sentimiento,
+            grafica_arquetipos,
+            grafica_pain_points,
+            grafica_heatmap_sesgo_pain_point,
+            grafica_volumen_vs_influencia,
+            grafica_sarcasmo_en_negativo,
+        )
+        _HAS_GRAFICAS = True
+    except ImportError:
+        _HAS_GRAFICAS = False
+
+    # ===== GRÁFICAS VISUALES (sección principal) =====
+
+    if _HAS_GRAFICAS:
+        graficas_section = ""
+
+        # Gráfica 1: Heatmap Sesgo × Sentimiento
+        b64 = grafica_heatmap_sesgo_sentimiento(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Distribución de Sentimiento por Sesgo Político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Heatmap mostrando cómo se distribuyen POS/NEG/NEU dentro de cada bloque político.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Heatmap Sesgo × Sentimiento"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 2: Arquetipos conductuales (versión mejorada con colores)
+        b64 = grafica_arquetipos(df_s, top=8)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Arquetipos de Comentarista (Top 8)</h3>
+    <figure><img src="data:image/png;base64,{b64}" alt="Arquetipos de comentarista"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 3: Ranking de Pain Points
+        b64 = grafica_pain_points(df_s, top=8)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Puntos de Dolor (Pain Points)</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Las frustraciones y preocupaciones más recurrentes en los comentarios.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Pain Points"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 4: Heatmap Sesgo × Pain Point
+        b64 = grafica_heatmap_sesgo_pain_point(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Pain Points por Sesgo Político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Matriz mostrando qué frustraciones afectan a cada bloque político.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Heatmap Sesgo × Pain Point"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 5: Volumen vs Influencia
+        b64 = grafica_volumen_vs_influencia(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Volumen vs Influencia por Sesgo</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Scatter: nº de comentarios (X) vs suma de likes (Y). Tamaño burbuja = varianza de likes.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Volumen vs Influencia"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 6: Sarcasmo en Negativo
+        b64 = grafica_sarcasmo_en_negativo(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Sarcasmo dentro de Comentarios Negativos</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Desglose de NEG entre legítimo e irónico/sarcástico (🤨).
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Sarcasmo en NEG"
+        style="max-width:500px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        if graficas_section:
+            bloques.append(graficas_section)
+
+    # ===== BLOQUES TEXTUALES (mantener para compatibilidad) =====
+
+    # 1) Sesgo político (barra simple)
     if 'bias' in df_s.columns and df_s['bias'].notna().any():
         counts = df_s['bias'].map(lambda x: _BIAS_PRETTY.get(str(x), str(x))).value_counts()
         orden = [l for l in ["Conservador", "Progresista", "Mixto", "Neutro", "No inferible"]
                  if l in counts.index]
         pares = [(l, int(counts[l])) for l in orden]
         b64 = _barra_dim_b64(pares, _BIAS_COLOR)
-        bloques.append(f"""
+        # Solo mostrar si las gráficas nuevas no se mostraron
+        if not _HAS_GRAFICAS or not any("Sesgo" in b for b in bloques):
+            bloques.append(f"""
     <h3 style="margin-top:28px;">Segmentación por sesgo político</h3>
     <p class="muted" style="font-size:12px;margin-top:-4px;">Ayuda analítica, no verdad absoluta: el sesgo es interpretativo.</p>
     <figure><img src="data:image/png;base64,{b64}" alt="Sesgo político"
         style="max-width:600px;border-radius:8px;background:#fff;"></figure>""")
 
-    # 2) Arquetipos conductuales
+    # 2) Arquetipos conductuales (tabla, mantener como fallback)
     if 'archetype' in df_s.columns and df_s['archetype'].notna().any():
         tabla = _tabla_dim(df_s['archetype'].value_counts(), _ARQ_PRETTY, total, top=8)
-        if tabla:
+        if tabla and (not _HAS_GRAFICAS or not any("Arquetipos" in b for b in bloques)):
             bloques.append(f"""
     <h3 style="margin-top:28px;">Arquetipos de comentarista</h3>
     {tabla}""")
