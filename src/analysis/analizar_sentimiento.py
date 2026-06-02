@@ -115,10 +115,10 @@ REGLAS:
 - Usa el CONTEXTO de los vídeos para desambiguar ironía y sesgo.
 - No inventes el sesgo: si dudas, usa 'no_inferible'.
 - Usa SOLO los valores de las listas. Si nada encaja, usa 'otro' (archetype) o 'ninguno' (pain_point).
-- Devuelve SOLO un JSON array, un objeto por comentario, en el MISMO orden. Sin markdown, sin texto extra.
+- Devuelve SOLO un OBJETO JSON con la clave "resultados", cuyo valor es un array con un objeto por comentario, en el MISMO orden. Sin markdown, sin texto extra, sin explicaciones.
 
-Ejemplo de un objeto:
-{{"index": 0, "sentiment": "NEG", "bias": "conservador", "archetype": "meme_fiscal", "intent": "castigo", "pain_point": "doble_rasero_fiscal", "sarcasm": true, "noise": false}}"""
+Ejemplo de formato exacto:
+{{"resultados": [{{"index": 0, "sentiment": "NEG", "bias": "conservador", "archetype": "meme_fiscal", "intent": "castigo", "pain_point": "doble_rasero_fiscal", "sarcasm": true, "noise": false}}]}}"""
 
 
 # ─── Excepciones ────────────────────────────────────────────────────────────
@@ -198,13 +198,16 @@ def limpiar_json(texto):
     return t.strip()
 
 
-def _extraer_json_array(texto):
-    """Extrae el array JSON de la respuesta, ignorando preámbulos en lenguaje
-    natural (p.ej. Mistral antepone 'Aquí están los objetos JSON:')."""
+def _extraer_json(texto):
+    """Extrae el bloque JSON (objeto o array) de la respuesta, ignorando
+    preámbulos en lenguaje natural (p.ej. 'Aquí están los objetos JSON:')."""
     t = limpiar_json(texto)
-    i = t.find("[")
-    j = t.rfind("]")
-    if i != -1 and j != -1 and j > i:
+    inicios = [p for p in (t.find("{"), t.find("[")) if p != -1]
+    if not inicios:
+        return t
+    i = min(inicios)
+    j = max(t.rfind("}"), t.rfind("]"))
+    if j > i:
         return t[i:j + 1]
     return t
 
@@ -261,14 +264,24 @@ def _parsear_item(item):
 
 
 def _parsear_respuesta(texto_resp, n):
-    """Parsea el JSON array del modelo en una lista de n objetos validados."""
-    datos = json.loads(_extraer_json_array(texto_resp))
+    """Parsea la respuesta del modelo en una lista de n objetos validados.
+
+    Acepta tanto un objeto {"resultados": [...]} (modo json_object) como un
+    array suelto [...] (compatibilidad)."""
+    datos = json.loads(_extraer_json(texto_resp))
+    if isinstance(datos, dict):
+        datos = (datos.get("resultados") or datos.get("results")
+                 or datos.get("comentarios") or [])
+    if not isinstance(datos, list):
+        raise ValueError("La respuesta no contiene una lista de resultados")
     objs = [_obj_defecto() for _ in range(n)]
-    for item in datos:
+    for pos, item in enumerate(datos):
         if not isinstance(item, dict):
             continue
         idx = item.get("index")
-        if isinstance(idx, int) and 0 <= idx < n:
+        if not isinstance(idx, int) or not (0 <= idx < n):
+            idx = pos  # si el modelo no numeró bien, usa el orden de aparición
+        if 0 <= idx < n:
             objs[idx] = _parsear_item(item)
     return objs
 
@@ -380,11 +393,16 @@ def _crear_cliente_openai_compat(proveedor_id, api_key):
 
 
 def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens):
-    """Llama a la API y devuelve (texto, finish_reason, tok_in, tok_out)."""
+    """Llama a la API y devuelve (texto, finish_reason, tok_in, tok_out).
+
+    Fuerza salida JSON con response_format=json_object: evita que el modelo
+    anteponga preámbulos o rechace la tarea (problema típico de modelos pequeños)."""
+    json_fmt = {"type": "json_object"}
     if proveedor_id == "groq":
         resp = client.chat.completions.create(
             model=modelo, messages=mensajes,
-            temperature=0.3, top_p=0.9, max_tokens=max_tokens,
+            temperature=0.2, top_p=0.9, max_tokens=max_tokens,
+            response_format=json_fmt,
         )
         u = resp.usage or {}
         return (resp.choices[0].message.content.strip(),
@@ -394,7 +412,8 @@ def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens
     elif proveedor_id == "mistral":
         resp = client.chat.complete(
             model=modelo, messages=mensajes,
-            temperature=0.3, max_tokens=max_tokens,
+            temperature=0.2, max_tokens=max_tokens,
+            response_format=json_fmt,
         )
         u = resp.usage or {}
         return (resp.choices[0].message.content.strip(),
@@ -403,42 +422,60 @@ def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens
                 getattr(u, "completion_tokens", 0))
 
 
-def clasificar_lote_openai_compat(client, proveedor_id, modelo, prompt_user, n):
-    """Clasifica un lote. Devuelve lista de n objetos dict o None si error puntual."""
+def clasificar_lote_openai_compat(client, proveedor_id, modelo, prompt_user, n, reintentos=3):
+    """Clasifica un lote. Devuelve lista de n objetos dict o None.
+
+    Reintenta con backoff si la respuesta viene vacía, truncada o no parsea
+    (modelos pequeños a veces devuelven texto vacío o no-JSON puntualmente)."""
     mensajes = [
-        {"role": "system", "content": "Eres un analista de social listening experto en español."},
+        {"role": "system", "content": "Eres un analista de social listening experto en español. Respondes SOLO con un objeto JSON."},
         {"role": "user",   "content": prompt_user},
     ]
-    t0 = time.time()
-    try:
-        texto_resp, finish_reason, tok_in, tok_out = _llamar_api_openai_compat(
-            client, proveedor_id, modelo, mensajes, max_tokens=MAX_TOKENS)
-        latencia_ms = int((time.time() - t0) * 1000)
-        texto_resp = limpiar_json(texto_resp)
+    for intento in range(1, reintentos + 1):
+        t0 = time.time()
+        try:
+            texto_resp, finish_reason, tok_in, tok_out = _llamar_api_openai_compat(
+                client, proveedor_id, modelo, mensajes, max_tokens=MAX_TOKENS)
+            latencia_ms = int((time.time() - t0) * 1000)
 
-        if finish_reason == "length":
-            print("   ⚠️ Respuesta truncada (finish_reason=length). Lote omitido.")
+            if finish_reason == "length":
+                _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
+                                modelo=modelo, n_comentarios=n, tokens_in=tok_in,
+                                tokens_out=tok_out, latencia_ms=latencia_ms,
+                                finish_reason=finish_reason, parse_ok=False)
+                print(f"   ⚠️ Respuesta truncada (length), reintento {intento}/{reintentos}…")
+                time.sleep(2 * intento)
+                continue
+
+            objs = _parsear_respuesta(texto_resp, n)
             _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
                             modelo=modelo, n_comentarios=n, tokens_in=tok_in,
                             tokens_out=tok_out, latencia_ms=latencia_ms,
-                            finish_reason=finish_reason, parse_ok=False)
+                            finish_reason=finish_reason, parse_ok=True)
+            return objs
+
+        except (json.JSONDecodeError, ValueError) as e:
+            # Respuesta vacía o no-JSON: reintentar
+            print(f"   ⚠️ Respuesta no-JSON ({str(e)[:60]}), reintento {intento}/{reintentos}…")
+            time.sleep(2 * intento)
+            continue
+        except Exception as e:
+            err = str(e)
+            if "rate_limit_exceeded" in err and any(k in err for k in ("per day", "TPD", "per_day")):
+                raise RateLimitDiaria(err)
+            if "model_decommissioned" in err or "decommissioned" in err:
+                raise RuntimeError(f"\n❌ MODELO DADO DE BAJA: {modelo}")
+            # Errores transitorios (5xx, 429 por minuto, red): backoff y reintento
+            if any(k in err.lower() for k in ("429", "500", "502", "503", "timeout", "overloaded")):
+                wait = 5 * intento
+                print(f"   ⚠️ Error transitorio ({err[:50]}), espera {wait}s (intento {intento}/{reintentos})…")
+                time.sleep(wait)
+                continue
+            print(f"   ⚠️ Error puntual: {err[:150]}")
             return None
 
-        objs = _parsear_respuesta(texto_resp, n)
-        _log_telemetria(timestamp=datetime.now().isoformat(), proveedor=proveedor_id,
-                        modelo=modelo, n_comentarios=n, tokens_in=tok_in,
-                        tokens_out=tok_out, latencia_ms=latencia_ms,
-                        finish_reason=finish_reason, parse_ok=True)
-        return objs
-
-    except Exception as e:
-        err = str(e)
-        if "rate_limit_exceeded" in err and any(k in err for k in ("per day", "TPD", "per_day")):
-            raise RateLimitDiaria(err)
-        if "model_decommissioned" in err or "decommissioned" in err:
-            raise RuntimeError(f"\n❌ MODELO DADO DE BAJA: {modelo}")
-        print(f"   ⚠️ Error puntual: {err[:150]}")
-        return None
+    print(f"   ❌ Lote omitido tras {reintentos} intentos.")
+    return None
 
 
 # ─── Dispatcher principal ────────────────────────────────────────────────────
