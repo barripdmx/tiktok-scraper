@@ -55,6 +55,10 @@ presentacion_tiktok_backup.pptx
 # ── Notas y resúmenes internos ────────────────────────────────────────────────
 CAMBIO_GROQ_RESUMEN.txt
 GROQ_SETUP.md
+EXPLICACION_PROGRAMA.txt
+IMPLEMENTACION_GRAFICAS_MULTIDIMENSIONALES.md
+docs/taller_tiktok_presentacion_guion.md
+*replacements.txt
 
 # ── Herramientas locales (Claude, Codex, Cursor) ──────────────────────────────
 .codegraph/
