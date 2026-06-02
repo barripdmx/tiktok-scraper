@@ -275,22 +275,26 @@ class MenuApp(ctk.CTk):
         self._card(col3, "8", "📄", "Informe HTML",
                    "Elige proyecto → genera + abre informe",
                    lambda: generar_informe(status_cb=self._status))
-        self._card(col3, "9", "🕸️", "Grafo de Redes",
+        self._card(col3, "9", "🧠", "Gráficas Multidimensionales",
+                   "Sesgo · Arquetipo · Intención · Pain points",
+                   lambda: run_script("src/visualization/grafica_multidimensional.py",
+                                      status_cb=self._status))
+        self._card(col3, "10", "🕸️", "Grafo de Redes",
                    "GEXF para Gephi",
                    lambda: run_script("src/visualization/crear_gexf.py",
                                       status_cb=self._status))
-        self._card(col3, "10", "📅", "Análisis de Bots",
+        self._card(col3, "11", "📅", "Análisis de Bots",
                    "Fechas creación de cuentas",
                    lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
                                       status_cb=self._status))
 
         # ---- Otros ----
         col4 = self._column(grid, "📁  Otros", 3)
-        self._card(col4, "11", "📂", "Carpeta Outputs",
+        self._card(col4, "12", "📂", "Carpeta Outputs",
                    "Ver resultados generados",
                    lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
                                          status_cb=self._status))
-        self._card(col4, "12", "🗂️", "Carpeta Proyecto",
+        self._card(col4, "13", "🗂️", "Carpeta Proyecto",
                    "Raíz del proyecto",
                    lambda: abrir_carpeta(_project_root(), status_cb=self._status))
 
