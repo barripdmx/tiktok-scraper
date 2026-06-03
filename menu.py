@@ -176,8 +176,8 @@ class MenuApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("TikTok OSINT & Analytics Toolkit")
-        self.geometry("960x620")
-        self.minsize(800, 520)
+        self.geometry("960x700")
+        self.minsize(800, 600)
         self.configure(fg_color=self.BG)
         self.resizable(True, True)
         self._build_ui()
@@ -449,14 +449,14 @@ class MenuApp(ctk.CTk):
             text_color=fg_sub, width=28,
         ).pack(side="right", padx=16)
 
-        # Hover + clic en toda la tarjeta ancha (incluyendo todos los labels hijos)
-        for w in outer.winfo_children():
-            w.bind("<Button-1>", lambda _e, c=cmd: c())
-            w.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
-            w.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
-        outer.bind("<Button-1>", lambda _e, c=cmd: c())
-        outer.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
-        outer.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
+        # Hover + clic en toda la tarjeta ancha — igual que _bind_card pero con colores propios
+        def _bind_wide(widget):
+            widget.bind("<Button-1>", lambda _e, c=cmd: c())
+            widget.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
+            widget.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
+            for child in widget.winfo_children():
+                _bind_wide(child)
+        _bind_wide(outer)
 
     def _status(self, msg: str):
         self.after(0, self._status_var.set, msg)
