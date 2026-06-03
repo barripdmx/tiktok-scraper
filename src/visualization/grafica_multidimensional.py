@@ -446,6 +446,518 @@ def grafica_sarcasmo_en_negativo(df: pd.DataFrame) -> str:
 
 
 # ============================================================================
+# GRÁFICA 7: Distribución de Intención
+# ============================================================================
+
+def grafica_intencion(df: pd.DataFrame) -> str:
+    """
+    Barras horizontales con la distribución de intención de los comentaristas
+    (compra, info, difusion, castigo, ninguna).
+    """
+    if 'intent' not in df.columns:
+        return ""
+
+    df_clean = df['intent'].dropna()
+    df_clean = df_clean[df_clean.str.strip() != ""]
+    if df_clean.empty:
+        return ""
+
+    pretty = {
+        "compra": "Compra / Consumo",
+        "info": "Buscar información",
+        "difusion": "Difusión / Amplificar",
+        "castigo": "Castigar / Atacar",
+        "ninguna": "Sin intención clara",
+    }
+    counts = df_clean.apply(lambda x: pretty.get(str(x).strip(), str(x))).value_counts()
+
+    colores = ["#1F618D", "#CA6F1E", "#7D3C98", "#A93226", "#999999"]
+
+    fig, ax = plt.subplots(figsize=(10, max(3, len(counts) * 0.55)))
+    fig.patch.set_facecolor("white")
+
+    bars = ax.barh(counts.index[::-1], counts.values[::-1],
+                   color=colores[:len(counts)][::-1], edgecolor="none", height=0.6)
+
+    total = counts.sum()
+    for bar, val in zip(bars, counts.values[::-1]):
+        pct = val / total * 100
+        ax.text(bar.get_width() + total * 0.005,
+                bar.get_y() + bar.get_height() / 2,
+                f"{int(val):,}  ({pct:.1f}%)", va="center", fontsize=9, color="#222222")
+
+    ax.set_xlim(0, counts.max() * 1.35)
+    ax.set_facecolor("white")
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="x", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555", labelsize=10)
+    ax.set_xlabel("Nº comentarios", fontsize=10)
+    ax.set_title("¿Qué quieren hacer los comentaristas? — Distribución de Intención",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 8: Evolución temporal del sesgo político
+# ============================================================================
+
+def grafica_evolucion_sesgo_temporal(df: pd.DataFrame) -> str:
+    """
+    Líneas semanales con el % de cada sesgo político a lo largo del tiempo.
+    Requiere columna de fecha (created_at, date, fecha o similar).
+    """
+    if 'bias' not in df.columns:
+        return ""
+
+    # Detectar columna de fecha
+    col_fecha = None
+    for c in ['created_at', 'date', 'fecha', 'timestamp', 'publish_time']:
+        if c in df.columns:
+            col_fecha = c
+            break
+    if col_fecha is None:
+        return ""
+
+    df_t = df[[col_fecha, 'bias']].dropna().copy()
+    try:
+        df_t[col_fecha] = pd.to_datetime(df_t[col_fecha], unit='s', errors='coerce')
+        if df_t[col_fecha].isna().all():
+            df_t[col_fecha] = pd.to_datetime(df[col_fecha], errors='coerce')
+    except Exception:
+        df_t[col_fecha] = pd.to_datetime(df_t[col_fecha], errors='coerce')
+
+    df_t = df_t.dropna(subset=[col_fecha])
+    if df_t.empty or df_t[col_fecha].nunique() < 3:
+        return ""
+
+    df_t['bias_norm'] = df_t['bias'].apply(_normalize_bias)
+    df_t['semana'] = df_t[col_fecha].dt.to_period('W').dt.start_time
+
+    pivot = (df_t.groupby(['semana', 'bias_norm'])
+             .size().unstack(fill_value=0))
+    pivot_pct = pivot.div(pivot.sum(axis=1), axis=0) * 100
+
+    # Solo mostrar sesgos con presencia real (>1% en alguna semana)
+    cols_validos = pivot_pct.columns[(pivot_pct > 1).any()]
+    if cols_validos.empty:
+        return ""
+    pivot_pct = pivot_pct[cols_validos]
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    fig.patch.set_facecolor("white")
+
+    for col in pivot_pct.columns:
+        color = _BIAS_COLOR.get(col, "#999999")
+        ax.plot(pivot_pct.index, pivot_pct[col], marker="o", markersize=4,
+                linewidth=2, color=color, label=col)
+
+    ax.set_facecolor("white")
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["left"].set_color("#CCCCCC")
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="y", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555", labelsize=9)
+    ax.set_ylabel("% de comentarios", fontsize=10)
+    ax.set_xlabel("")
+    ax.legend(title="Sesgo", fontsize=9, title_fontsize=9, framealpha=0.7)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+    ax.set_title("Evolución Semanal del Sesgo Político en Comentarios",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.xticks(rotation=30, ha="right")
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 9: Sentimiento por vídeo (Top 10 vídeos más negativos)
+# ============================================================================
+
+def grafica_sentimiento_por_video(df: pd.DataFrame, top: int = 10) -> str:
+    """
+    Barras apiladas horizontales con % POS/NEU/NEG por vídeo.
+    Ordenadas por % NEG descendente. Muestra los top N vídeos con más comentarios.
+    """
+    if 'sentiment' not in df.columns:
+        return ""
+
+    col_video = None
+    for c in ['video_id', 'videoId', 'id_video']:
+        if c in df.columns:
+            col_video = c
+            break
+    if col_video is None:
+        return ""
+
+    df_v = df[[col_video, 'sentiment']].dropna().copy()
+    df_v['sent_norm'] = df_v['sentiment'].apply(_normalize_sentiment)
+
+    # Solo vídeos con mínimo 10 comentarios
+    conteo = df_v[col_video].value_counts()
+    videos_validos = conteo[conteo >= 10].index
+    df_v = df_v[df_v[col_video].isin(videos_validos)]
+
+    if df_v.empty:
+        return ""
+
+    pivot = (df_v.groupby([col_video, 'sent_norm'])
+             .size().unstack(fill_value=0))
+
+    # Calcular % y ordenar por % NEG
+    pivot_pct = pivot.div(pivot.sum(axis=1), axis=0) * 100
+    if 'Negativo' not in pivot_pct.columns:
+        return ""
+
+    pivot_pct = pivot_pct.sort_values('Negativo', ascending=False).head(top)
+
+    # Etiqueta: ID acortado
+    pivot_pct.index = [str(i)[-6:] for i in pivot_pct.index]
+
+    cols = [c for c in ['Negativo', 'Neutro', 'Positivo'] if c in pivot_pct.columns]
+    colores_map = {'Positivo': '#1E8449', 'Neutro': '#4A4A4A', 'Negativo': '#A93226'}
+    colores = [colores_map[c] for c in cols]
+
+    fig, ax = plt.subplots(figsize=(12, max(4, len(pivot_pct) * 0.55)))
+    fig.patch.set_facecolor("white")
+
+    left = np.zeros(len(pivot_pct))
+    for col, color in zip(cols, colores):
+        vals = pivot_pct[col].values
+        bars = ax.barh(pivot_pct.index, vals, left=left, color=color,
+                       label=col, edgecolor="white", linewidth=0.5, height=0.6)
+        for bar, val, l in zip(bars, vals, left):
+            if val > 8:
+                ax.text(l + val / 2, bar.get_y() + bar.get_height() / 2,
+                        f"{val:.0f}%", ha="center", va="center",
+                        fontsize=8, color="white", fontweight="bold")
+        left += vals
+
+    ax.set_xlim(0, 100)
+    ax.set_facecolor("white")
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.tick_params(colors="#555555", labelsize=9)
+    ax.set_xlabel("% de comentarios", fontsize=10)
+    ax.set_ylabel(f"ID de vídeo (últimos 6 dígitos)", fontsize=9)
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.7)
+    ax.set_title(f"Top {top} Vídeos con Mayor % de Comentarios Negativos",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 10: Likes por sentimiento
+# ============================================================================
+
+def grafica_likes_por_sentimiento(df: pd.DataFrame) -> str:
+    """
+    Diagrama de caja (boxplot) o barras de promedio de likes por sentimiento.
+    Responde: ¿los comentarios negativos reciben más likes?
+    """
+    if 'sentiment' not in df.columns or 'likes_count' not in df.columns:
+        return ""
+
+    df_l = df[['sentiment', 'likes_count']].dropna().copy()
+    df_l = df_l[df_l['likes_count'] >= 0]
+    df_l['sent_norm'] = df_l['sentiment'].apply(_normalize_sentiment)
+
+    if df_l.empty:
+        return ""
+
+    orden = [s for s in ['Negativo', 'Neutro', 'Positivo'] if s in df_l['sent_norm'].unique()]
+    colores = {'Positivo': '#1E8449', 'Neutro': '#4A4A4A', 'Negativo': '#A93226'}
+
+    # Agrupar: mediana + media
+    stats = (df_l.groupby('sent_norm')['likes_count']
+             .agg(['median', 'mean', 'count'])
+             .loc[orden])
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    fig.patch.set_facecolor("white")
+
+    x = np.arange(len(orden))
+    bars = ax.bar(x, stats['median'], color=[colores[s] for s in orden],
+                  edgecolor="none", width=0.5)
+
+    # Punto de media
+    ax.scatter(x, stats['mean'], color='black', zorder=5, s=60,
+               marker='D', label='Media')
+
+    # Etiquetas
+    for i, (sent, row) in enumerate(stats.iterrows()):
+        ax.text(i, row['median'] + stats['median'].max() * 0.02,
+                f"Mediana: {row['median']:.0f}\nMedia: {row['mean']:.1f}",
+                ha='center', va='bottom', fontsize=9, color='#222222')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(orden, fontsize=11)
+    ax.set_facecolor("white")
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["left"].set_color("#CCCCCC")
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="y", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555")
+    ax.set_ylabel("Likes por comentario", fontsize=10)
+    ax.legend(fontsize=9)
+    ax.set_title("¿Qué sentimiento recibe más likes? — Mediana y Media de Likes",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 11: Heatmap Intención × Sesgo
+# ============================================================================
+
+def grafica_heatmap_intencion_sesgo(df: pd.DataFrame) -> str:
+    """
+    Heatmap que cruza intención con sesgo político.
+    ¿Qué bloque quiere 'castigar' vs 'difundir'?
+    """
+    if 'intent' not in df.columns or 'bias' not in df.columns:
+        return ""
+
+    df_c = df[['intent', 'bias']].dropna().copy()
+    df_c = df_c[df_c['intent'].str.strip() != ""]
+    if df_c.empty:
+        return ""
+
+    intent_pretty = {
+        "compra": "Compra", "info": "Información",
+        "difusion": "Difusión", "castigo": "Castigo", "ninguna": "Sin intención",
+    }
+    df_c['intent_norm'] = df_c['intent'].apply(lambda x: intent_pretty.get(str(x).strip(), str(x)))
+    df_c['bias_norm'] = df_c['bias'].apply(_normalize_bias)
+
+    crosstab = pd.crosstab(df_c['bias_norm'], df_c['intent_norm'])
+
+    bias_order = [b for b in ["Conservador", "Progresista", "Mixto", "Neutro", "No inferible"]
+                  if b in crosstab.index]
+    crosstab = crosstab.loc[bias_order, :]
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    sns.heatmap(crosstab, annot=True, fmt="d", cmap="Blues", ax=ax,
+                cbar_kws={"label": "Nº comentarios"}, linewidths=0.5, linecolor="white")
+    ax.set_title("Intención por Sesgo Político — ¿Quién quiere castigar vs difundir?",
+                 fontsize=13, fontweight="bold", pad=20)
+    ax.set_xlabel("Intención", fontsize=11)
+    ax.set_ylabel("Sesgo Político", fontsize=11)
+    fig.patch.set_facecolor("white")
+    plt.xticks(rotation=30, ha="right")
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 12: Top comentaristas por arquetipo
+# ============================================================================
+
+def grafica_top_comentaristas_por_arquetipo(df: pd.DataFrame, top_arq: int = 3, top_users: int = 5) -> str:
+    """
+    Para los top_arq arquetipos más frecuentes, muestra los top_users
+    comentaristas más activos dentro de cada arquetipo.
+    Útil para identificar cuentas bot o coordinadas.
+    """
+    if 'archetype' not in df.columns:
+        return ""
+
+    col_autor = None
+    for c in ['author_id', 'author', 'username', 'user_id', 'uniqueId']:
+        if c in df.columns:
+            col_autor = c
+            break
+    if col_autor is None:
+        return ""
+
+    df_a = df[['archetype', col_autor]].dropna().copy()
+    df_a['arq_norm'] = df_a['archetype'].apply(_normalize_archetype)
+
+    # Top arquetipos por volumen
+    top_arquetipos = df_a['arq_norm'].value_counts().head(top_arq).index.tolist()
+    if not top_arquetipos:
+        return ""
+
+    fig, axes = plt.subplots(1, len(top_arquetipos),
+                              figsize=(6 * len(top_arquetipos), 5), sharey=False)
+    if len(top_arquetipos) == 1:
+        axes = [axes]
+    fig.patch.set_facecolor("white")
+
+    for ax, arq in zip(axes, top_arquetipos):
+        sub = df_a[df_a['arq_norm'] == arq]
+        top_u = sub[col_autor].value_counts().head(top_users)
+
+        if top_u.empty:
+            ax.axis("off")
+            continue
+
+        color = _ARQ_COLOR.get(arq, "#1F618D")
+        bars = ax.barh(top_u.index[::-1], top_u.values[::-1],
+                       color=color, alpha=0.85, edgecolor="none", height=0.6)
+
+        for bar, val in zip(bars, top_u.values[::-1]):
+            ax.text(bar.get_width() + top_u.max() * 0.02,
+                    bar.get_y() + bar.get_height() / 2,
+                    str(int(val)), va="center", fontsize=9)
+
+        ax.set_facecolor("white")
+        for sp in ["top", "right", "left"]:
+            ax.spines[sp].set_visible(False)
+        ax.spines["bottom"].set_color("#CCCCCC")
+        ax.grid(axis="x", color="#EBEBEB", linewidth=0.5)
+        ax.set_axisbelow(True)
+        ax.tick_params(colors="#555555", labelsize=8)
+        ax.set_title(arq, fontsize=10, fontweight="bold", color=color, pad=10)
+        ax.set_xlabel("Nº comentarios", fontsize=9)
+        ax.set_xlim(0, top_u.max() * 1.25)
+
+    fig.suptitle(f"Top {top_users} Comentaristas por Arquetipo (Top {top_arq} arquetipos)",
+                 fontsize=12, fontweight="bold", y=1.02)
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 13: Ratio de sarcasmo por sesgo político
+# ============================================================================
+
+def grafica_sarcasmo_por_sesgo(df: pd.DataFrame) -> str:
+    """
+    Barras con el % de sarcasmo/ironía dentro de cada bloque político.
+    ¿Qué bloque usa más ironía para comentar?
+    """
+    if 'sarcasm' not in df.columns or 'bias' not in df.columns:
+        return ""
+
+    df_s = df[['sarcasm', 'bias']].dropna().copy()
+    if df_s.empty:
+        return ""
+
+    df_s['bias_norm'] = df_s['bias'].apply(_normalize_bias)
+    df_s['sarcasm_bool'] = df_s['sarcasm'].fillna(False).astype(bool)
+
+    stats = df_s.groupby('bias_norm')['sarcasm_bool'].agg(['sum', 'count'])
+    stats['pct'] = stats['sum'] / stats['count'] * 100
+    stats = stats.sort_values('pct', ascending=True)
+
+    if stats.empty:
+        return ""
+
+    fig, ax = plt.subplots(figsize=(9, max(3, len(stats) * 0.6)))
+    fig.patch.set_facecolor("white")
+
+    colores = [_BIAS_COLOR.get(idx, "#999999") for idx in stats.index]
+    bars = ax.barh(stats.index, stats['pct'], color=colores,
+                   edgecolor="none", height=0.55)
+
+    for bar, (idx, row) in zip(bars, stats.iterrows()):
+        ax.text(bar.get_width() + 0.3,
+                bar.get_y() + bar.get_height() / 2,
+                f"{row['pct']:.1f}%  ({int(row['sum']):,} de {int(row['count']):,})",
+                va="center", fontsize=9, color="#222222")
+
+    ax.set_xlim(0, stats['pct'].max() * 1.5)
+    ax.set_facecolor("white")
+    for sp in ["top", "right", "left"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.grid(axis="x", color="#EBEBEB", linewidth=0.5)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors="#555555", labelsize=10)
+    ax.set_xlabel("% comentarios con sarcasmo/ironía", fontsize=10)
+    ax.set_title("¿Qué bloque político usa más sarcasmo?",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
+# GRÁFICA 14: Evolución de arquetipos en el tiempo
+# ============================================================================
+
+def grafica_evolucion_arquetipos_temporal(df: pd.DataFrame, top: int = 5) -> str:
+    """
+    Área apilada mensual con los top N arquetipos.
+    ¿Cambia el perfil del comentarista según el momento?
+    """
+    if 'archetype' not in df.columns:
+        return ""
+
+    col_fecha = None
+    for c in ['created_at', 'date', 'fecha', 'timestamp', 'publish_time']:
+        if c in df.columns:
+            col_fecha = c
+            break
+    if col_fecha is None:
+        return ""
+
+    df_t = df[[col_fecha, 'archetype']].dropna().copy()
+    try:
+        df_t[col_fecha] = pd.to_datetime(df_t[col_fecha], unit='s', errors='coerce')
+        if df_t[col_fecha].isna().all():
+            df_t[col_fecha] = pd.to_datetime(df[col_fecha], errors='coerce')
+    except Exception:
+        df_t[col_fecha] = pd.to_datetime(df_t[col_fecha], errors='coerce')
+
+    df_t = df_t.dropna(subset=[col_fecha])
+    if df_t.empty or df_t[col_fecha].nunique() < 3:
+        return ""
+
+    df_t['arq_norm'] = df_t['archetype'].apply(_normalize_archetype)
+    df_t['mes'] = df_t[col_fecha].dt.to_period('M').dt.start_time
+
+    # Top N arquetipos por volumen total
+    top_arqs = df_t['arq_norm'].value_counts().head(top).index.tolist()
+    df_t_top = df_t[df_t['arq_norm'].isin(top_arqs)]
+
+    pivot = (df_t_top.groupby(['mes', 'arq_norm'])
+             .size().unstack(fill_value=0)[top_arqs])
+
+    if pivot.empty or len(pivot) < 2:
+        return ""
+
+    pivot_pct = pivot.div(pivot.sum(axis=1), axis=0) * 100
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    fig.patch.set_facecolor("white")
+
+    colores = [_ARQ_COLOR.get(a, "#999999") for a in top_arqs]
+    ax.stackplot(pivot_pct.index, pivot_pct.T.values,
+                 labels=top_arqs, colors=colores, alpha=0.8)
+
+    ax.set_facecolor("white")
+    for sp in ["top", "right"]:
+        ax.spines[sp].set_visible(False)
+    ax.spines["left"].set_color("#CCCCCC")
+    ax.spines["bottom"].set_color("#CCCCCC")
+    ax.tick_params(colors="#555555", labelsize=9)
+    ax.set_ylabel("% de comentarios", fontsize=10)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+    ax.legend(loc="upper left", fontsize=8, title="Arquetipo",
+              title_fontsize=8, framealpha=0.7, bbox_to_anchor=(1.01, 1))
+    ax.set_title(f"Evolución Mensual de Arquetipos (Top {top})",
+                 fontsize=12, fontweight="bold", pad=15)
+
+    plt.xticks(rotation=30, ha="right")
+    plt.tight_layout()
+    return _to_base64_png(fig)
+
+
+# ============================================================================
 # Función auxiliar: generar todas las gráficas (para uso como librería)
 # ============================================================================
 
@@ -464,12 +976,20 @@ def generar_todas_graficas(df: pd.DataFrame) -> dict:
     }
     """
     return {
-        "heatmap_sesgo_sentimiento": grafica_heatmap_sesgo_sentimiento(df),
-        "arquetipos": grafica_arquetipos(df),
-        "pain_points": grafica_pain_points(df),
-        "heatmap_sesgo_pain_point": grafica_heatmap_sesgo_pain_point(df),
-        "volumen_vs_influencia": grafica_volumen_vs_influencia(df),
-        "sarcasmo_en_negativo": grafica_sarcasmo_en_negativo(df),
+        "heatmap_sesgo_sentimiento":        grafica_heatmap_sesgo_sentimiento(df),
+        "arquetipos":                        grafica_arquetipos(df),
+        "pain_points":                       grafica_pain_points(df),
+        "heatmap_sesgo_pain_point":          grafica_heatmap_sesgo_pain_point(df),
+        "volumen_vs_influencia":             grafica_volumen_vs_influencia(df),
+        "sarcasmo_en_negativo":              grafica_sarcasmo_en_negativo(df),
+        "intencion":                         grafica_intencion(df),
+        "evolucion_sesgo_temporal":          grafica_evolucion_sesgo_temporal(df),
+        "sentimiento_por_video":             grafica_sentimiento_por_video(df),
+        "likes_por_sentimiento":             grafica_likes_por_sentimiento(df),
+        "heatmap_intencion_sesgo":           grafica_heatmap_intencion_sesgo(df),
+        "top_comentaristas_por_arquetipo":   grafica_top_comentaristas_por_arquetipo(df),
+        "sarcasmo_por_sesgo":                grafica_sarcasmo_por_sesgo(df),
+        "evolucion_arquetipos_temporal":     grafica_evolucion_arquetipos_temporal(df),
     }
 
 
@@ -545,12 +1065,20 @@ def main():
 
     # ── Generar y guardar ────────────────────────────────────────────────────
     GRAFICAS = [
-        ("heatmap_sesgo_sentimiento",  grafica_heatmap_sesgo_sentimiento,  "1_heatmap_sesgo_sentimiento.png"),
-        ("arquetipos",                 grafica_arquetipos,                 "2_arquetipos.png"),
-        ("pain_points",                grafica_pain_points,                "3_pain_points.png"),
-        ("heatmap_sesgo_pain_point",   grafica_heatmap_sesgo_pain_point,   "4_heatmap_sesgo_pain_point.png"),
-        ("volumen_vs_influencia",      grafica_volumen_vs_influencia,      "5_volumen_vs_influencia.png"),
-        ("sarcasmo_en_negativo",       grafica_sarcasmo_en_negativo,       "6_sarcasmo_en_negativo.png"),
+        ("heatmap_sesgo_sentimiento",       grafica_heatmap_sesgo_sentimiento,       "01_heatmap_sesgo_sentimiento.png"),
+        ("arquetipos",                      grafica_arquetipos,                      "02_arquetipos.png"),
+        ("pain_points",                     grafica_pain_points,                     "03_pain_points.png"),
+        ("heatmap_sesgo_pain_point",        grafica_heatmap_sesgo_pain_point,        "04_heatmap_sesgo_pain_point.png"),
+        ("volumen_vs_influencia",           grafica_volumen_vs_influencia,           "05_volumen_vs_influencia.png"),
+        ("sarcasmo_en_negativo",            grafica_sarcasmo_en_negativo,            "06_sarcasmo_en_negativo.png"),
+        ("intencion",                       grafica_intencion,                       "07_intencion.png"),
+        ("evolucion_sesgo_temporal",        grafica_evolucion_sesgo_temporal,        "08_evolucion_sesgo_temporal.png"),
+        ("sentimiento_por_video",           grafica_sentimiento_por_video,           "09_sentimiento_por_video.png"),
+        ("likes_por_sentimiento",           grafica_likes_por_sentimiento,           "10_likes_por_sentimiento.png"),
+        ("heatmap_intencion_sesgo",         grafica_heatmap_intencion_sesgo,         "11_heatmap_intencion_sesgo.png"),
+        ("top_comentaristas_por_arquetipo", grafica_top_comentaristas_por_arquetipo, "12_top_comentaristas_por_arquetipo.png"),
+        ("sarcasmo_por_sesgo",              grafica_sarcasmo_por_sesgo,              "13_sarcasmo_por_sesgo.png"),
+        ("evolucion_arquetipos_temporal",   grafica_evolucion_arquetipos_temporal,   "14_evolucion_arquetipos_temporal.png"),
     ]
 
     generadas = []
