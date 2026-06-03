@@ -279,16 +279,16 @@ class MenuApp(ctk.CTk):
                    "GEXF para Gephi",
                    lambda: run_script("src/visualization/crear_gexf.py",
                                       status_cb=self._status))
-        self._card(col3, "10", "📅", "Análisis de Bots",
-                   "Fechas creación de cuentas",
-                   lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
-                                      status_cb=self._status))
 
         # ---- Otros ----
         col4 = self._column(grid, "📁  Otros", 3)
-        self._card(col4, "11", "🔄", "Comparativa Usuarios",
+        self._card(col4, "10", "🔄", "Comparativa Usuarios",
                    "Entre distintas cuentas",
                    lambda: run_script("src/analysis/comparativa_usuarios.py",
+                                      status_cb=self._status))
+        self._card(col4, "11", "📅", "Análisis de Bots",
+                   "Fechas de creación de cuentas",
+                   lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
                                       status_cb=self._status))
         self._card(col4, "12", "📂", "Carpeta Outputs",
                    "Ver resultados generados",

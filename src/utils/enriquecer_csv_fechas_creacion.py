@@ -182,38 +182,81 @@ def process_handles(
 
 
 def main():
-    print("=" * 72)
-    print("Enriquecedor CSV -> fecha de creación de cuentas TikTok")
-    print("=" * 72)
+    import sys
+    import tkinter as tk
+    from tkinter import filedialog, simpledialog, messagebox
 
-    source_csv = input("Ruta del CSV origen: ").strip().strip('"')
+    # ── Selector de CSV ──────────────────────────────────────────────────────
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    source_csv = filedialog.askopenfilename(
+        title="Selecciona el CSV con cuentas de TikTok a analizar",
+        filetypes=[
+            ("CSV de comentarios", "*comentarios*.csv"),
+            ("Todos los CSV", "*.csv"),
+        ],
+    )
+    root.destroy()
+
     if not source_csv:
-        print("❌ Debes indicar un CSV")
+        print("Operación cancelada.")
         return
     if not os.path.isfile(source_csv):
         print("❌ No existe el archivo indicado")
         return
 
-    handle_col = input("Columna de cuentas [autor_handle]: ").strip() or "autor_handle"
-    batch_raw = input("Cuentas a procesar en esta tanda [2000]: ").strip() or "2000"
-    pause_raw = input("Pausa entre cuentas en segundos [0.35]: ").strip() or "0.35"
+    # ── Columna de handles ───────────────────────────────────────────────────
+    root2 = tk.Tk()
+    root2.withdraw()
+    root2.attributes("-topmost", True)
+    handle_col = simpledialog.askstring(
+        "Columna de cuentas",
+        "¿Nombre de la columna con los handles de usuario?\n(deja en blanco para usar 'autor_handle')",
+        initialvalue="autor_handle",
+        parent=root2,
+    )
+    root2.destroy()
 
-    try:
-        batch_limit = int(batch_raw)
-    except ValueError:
-        batch_limit = 2000
+    if handle_col is None:
+        print("Operación cancelada.")
+        return
+    handle_col = handle_col.strip() or "autor_handle"
 
-    try:
-        pause_seconds = float(pause_raw)
-    except ValueError:
-        pause_seconds = 0.35
+    print("=" * 72)
+    print("Enriquecedor CSV -> fecha de creación de cuentas TikTok")
+    print("=" * 72)
+    print(f"  CSV       : {os.path.basename(source_csv)}")
+    print(f"  Columna   : {handle_col}")
+    print()
 
     process_handles(
         source_csv=source_csv,
         handle_col=handle_col,
-        batch_limit=batch_limit,
-        pause_seconds=pause_seconds,
+        batch_limit=2000,
+        pause_seconds=0.35,
     )
+
+    # ── Aviso final ──────────────────────────────────────────────────────────
+    _, enriched_csv = build_output_paths(source_csv)
+    root3 = tk.Tk()
+    root3.withdraw()
+    if os.path.exists(enriched_csv):
+        abrir = messagebox.askyesno(
+            "✅ Análisis completado",
+            f"CSV enriquecido guardado en:\n{enriched_csv}\n\n¿Abrir la carpeta?"
+        )
+        root3.destroy()
+        if abrir:
+            import subprocess
+            carpeta = os.path.dirname(enriched_csv)
+            if sys.platform == "win32":
+                os.startfile(carpeta)
+            else:
+                subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", carpeta])
+    else:
+        root3.destroy()
 
 
 if __name__ == "__main__":
