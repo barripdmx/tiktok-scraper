@@ -446,7 +446,7 @@ def grafica_sarcasmo_en_negativo(df: pd.DataFrame) -> str:
 
 
 # ============================================================================
-# Función auxiliar: generar todas las gráficas
+# Función auxiliar: generar todas las gráficas (para uso como librería)
 # ============================================================================
 
 def generar_todas_graficas(df: pd.DataFrame) -> dict:
@@ -471,3 +471,143 @@ def generar_todas_graficas(df: pd.DataFrame) -> dict:
         "volumen_vs_influencia": grafica_volumen_vs_influencia(df),
         "sarcasmo_en_negativo": grafica_sarcasmo_en_negativo(df),
     }
+
+
+# ============================================================================
+# Ejecución standalone (llamado desde el menú o la terminal)
+# ============================================================================
+
+def main():
+    import os
+    import sys
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+
+    # ── Selector de CSV ──────────────────────────────────────────────────────
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    csv_path = filedialog.askopenfilename(
+        title="Selecciona el CSV con análisis de sentimiento (Mistral o Groq)",
+        filetypes=[
+            ("CSV con sentimiento", "*con_sentimiento*.csv"),
+            ("Todos los CSV", "*.csv"),
+        ],
+    )
+    root.destroy()
+
+    if not csv_path:
+        print("Operación cancelada.")
+        return
+
+    # ── Cargar datos ─────────────────────────────────────────────────────────
+    print(f"\n  Cargando: {os.path.basename(csv_path)}")
+    try:
+        df = pd.read_csv(csv_path, low_memory=False)
+    except Exception as e:
+        print(f"  ❌ Error al leer CSV: {e}")
+        return
+
+    print(f"  Filas   : {len(df):,}")
+
+    # Verificar que tiene columnas de análisis multidimensional
+    columnas_multi = {'bias', 'archetype', 'pain_point', 'intent', 'sarcasm'}
+    encontradas = columnas_multi & set(df.columns)
+    if not encontradas:
+        root2 = tk.Tk()
+        root2.withdraw()
+        messagebox.showerror(
+            "CSV no válido",
+            "Este CSV no contiene columnas de análisis multidimensional.\n\n"
+            "Necesita columnas como: bias, archetype, pain_point, intent, sarcasm.\n\n"
+            "Ejecuta primero el análisis de sentimiento con Mistral o Groq."
+        )
+        root2.destroy()
+        return
+
+    # ── Carpeta de salida ────────────────────────────────────────────────────
+    nombre_base = os.path.splitext(os.path.basename(csv_path))[0]
+    # Derivar file_id: eliminar sufijos de sentimiento para obtener la raíz del proyecto
+    file_id = nombre_base
+    for sufijo in ["_con_sentimiento_mistral", "_con_sentimiento_groq",
+                   "_con_sentimiento_gemini", "_con_sentimiento"]:
+        if file_id.endswith(sufijo):
+            file_id = file_id[: -len(sufijo)]
+            break
+
+    # Buscar la raíz del proyecto (dos niveles arriba desde este archivo)
+    _BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    carpeta_salida = os.path.join(_BASE, "outputs", file_id, "graficas_multidimensionales")
+    os.makedirs(carpeta_salida, exist_ok=True)
+
+    print(f"\n  Generando gráficas en: {carpeta_salida}\n")
+
+    # ── Generar y guardar ────────────────────────────────────────────────────
+    GRAFICAS = [
+        ("heatmap_sesgo_sentimiento",  grafica_heatmap_sesgo_sentimiento,  "1_heatmap_sesgo_sentimiento.png"),
+        ("arquetipos",                 grafica_arquetipos,                 "2_arquetipos.png"),
+        ("pain_points",                grafica_pain_points,                "3_pain_points.png"),
+        ("heatmap_sesgo_pain_point",   grafica_heatmap_sesgo_pain_point,   "4_heatmap_sesgo_pain_point.png"),
+        ("volumen_vs_influencia",      grafica_volumen_vs_influencia,      "5_volumen_vs_influencia.png"),
+        ("sarcasmo_en_negativo",       grafica_sarcasmo_en_negativo,       "6_sarcasmo_en_negativo.png"),
+    ]
+
+    generadas = []
+    omitidas  = []
+
+    for nombre, func, filename in GRAFICAS:
+        try:
+            b64 = func(df)
+            if not b64:
+                omitidas.append(nombre)
+                print(f"  ⚠️  {filename} — omitida (columnas no disponibles)")
+                continue
+
+            ruta = os.path.join(carpeta_salida, filename)
+            import base64 as _b64
+            with open(ruta, "wb") as f:
+                f.write(_b64.b64decode(b64))
+
+            generadas.append(ruta)
+            print(f"  ✅ {filename}")
+
+        except Exception as e:
+            omitidas.append(nombre)
+            print(f"  ❌ {filename} — error: {e}")
+
+    # ── Resumen final ────────────────────────────────────────────────────────
+    print(f"\n  ── Resumen ──────────────────────────────")
+    print(f"  Generadas : {len(generadas)}/{len(GRAFICAS)}")
+    if omitidas:
+        print(f"  Omitidas  : {', '.join(omitidas)}")
+    print(f"  Carpeta   : {carpeta_salida}\n")
+
+    if generadas:
+        root3 = tk.Tk()
+        root3.withdraw()
+        abrir = messagebox.askyesno(
+            "✅ Gráficas generadas",
+            f"Se han generado {len(generadas)} gráfica(s) en:\n\n{carpeta_salida}\n\n"
+            "¿Abrir la carpeta?"
+        )
+        root3.destroy()
+        if abrir:
+            if sys.platform == "win32":
+                os.startfile(carpeta_salida)
+            else:
+                import subprocess
+                subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", carpeta_salida])
+    else:
+        root4 = tk.Tk()
+        root4.withdraw()
+        messagebox.showwarning(
+            "Sin gráficas",
+            "No se generó ninguna gráfica.\n"
+            "Comprueba que el CSV tiene columnas: bias, archetype, pain_point, sentiment."
+        )
+        root4.destroy()
+
+
+if __name__ == "__main__":
+    main()
