@@ -237,7 +237,7 @@ class MenuApp(ctk.CTk):
         grid.rowconfigure(0, weight=1)
 
         # ---- Fase 1 ----
-        col1 = self._column(grid, "📥  Fase 1 — Scraping", 0)
+        col1 = self._column(grid, "📥  Fase 1 — Captura de datos", 0)
         self._card(col1, "1", "👤", "Scraper de Usuario",
                    "Perfil @user",
                    lambda: run_script("src/scrapers/1_tiktok_scraper_user.py",
@@ -250,51 +250,55 @@ class MenuApp(ctk.CTk):
                    "Miles de comentarios (Pro)",
                    lambda: run_script("src/scrapers/2_tiktok_scraper_comentarios_api.py",
                                       status_cb=self._status))
+        self._card(col1, "4", "📅", "Edad de Cuentas",
+                   "Antigüedad de comentaristas",
+                   lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
+                                      status_cb=self._status))
 
         # ---- Fase 2 ----
         col2 = self._column(grid, "📊  Fase 2 — Análisis", 1)
-        self._card(col2, "4", "📈", "Analítica Publicaciones",
+        self._card(col2, "5", "📈", "Analítica Publicaciones",
                    "Vistas y likes",
                    lambda: run_script("src/analysis/analitica_publicaciones.py",
                                       status_cb=self._status))
-        self._card(col2, "5", "🗣️", "Analítica Comentarios",
+        self._card(col2, "6", "🗣️", "Analítica Comentarios",
                    "Nubes de palabras",
                    lambda: run_script("src/analysis/analitica_comentarios.py",
                                       status_cb=self._status))
-        self._card(col2, "6", "🤖", "Sentimiento con IA (Comentarios)",
+        self._card(col2, "7", "🤖", "Sentimiento con IA (Comentarios)",
                    "RoBERTa · Groq · Mistral",
                    lambda: run_script("src/analysis/analizar_sentimiento.py",
                                       status_cb=self._status))
-        self._card(col2, "7", "🧠", "Gráficas Multidimensionales de Comentarios",
+        self._card(col2, "8", "🧠", "Gráficas Multidimensionales de Comentarios",
                    "Sesgo · Arquetipo · Intención · Pain points",
                    lambda: run_script("src/visualization/grafica_multidimensional.py",
+                                      status_cb=self._status))
+        self._card(col2, "9", "🕵️", "Patrones de Cuentas / Bots",
+                   "Antigüedad · actividad · perfiles vacíos",
+                   lambda: run_script("src/visualization/graficas_patrones_cuentas.py",
                                       status_cb=self._status))
 
         # ---- Fase 3 ----
         col3 = self._column(grid, "🌐  Fase 3 — Visualización", 2)
-        self._card(col3, "8", "📄", "Informe HTML",
+        self._card(col3, "10", "📄", "Informe HTML",
                    "Elige proyecto → genera + abre informe",
                    lambda: generar_informe(status_cb=self._status))
-        self._card(col3, "9", "🕸️", "Grafo de Redes",
+        self._card(col3, "11", "🕸️", "Grafo de Redes",
                    "GEXF para Gephi",
                    lambda: run_script("src/visualization/crear_gexf.py",
                                       status_cb=self._status))
 
         # ---- Otros ----
         col4 = self._column(grid, "📁  Otros", 3)
-        self._card(col4, "10", "🔄", "Comparativa Usuarios",
+        self._card(col4, "12", "🔄", "Comparativa Usuarios",
                    "Entre distintas cuentas",
                    lambda: run_script("src/analysis/comparativa_usuarios.py",
                                       status_cb=self._status))
-        self._card(col4, "11", "📅", "Análisis de Bots",
-                   "Fechas de creación de cuentas",
-                   lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
-                                      status_cb=self._status))
-        self._card(col4, "12", "📂", "Carpeta Outputs",
+        self._card(col4, "13", "📂", "Carpeta Outputs",
                    "Ver resultados generados",
                    lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
                                          status_cb=self._status))
-        self._card(col4, "13", "🗂️", "Carpeta Proyecto",
+        self._card(col4, "14", "🗂️", "Carpeta Proyecto",
                    "Raíz del proyecto",
                    lambda: abrir_carpeta(_project_root(), status_cb=self._status))
 
