@@ -348,6 +348,14 @@ class MenuApp(ctk.CTk):
 
         return frame
 
+    def _bind_card(self, widget, cmd, outer):
+        """Enlaza clic y hover a un widget y todos sus hijos recursivamente."""
+        widget.bind("<Button-1>", lambda _e, c=cmd: c())
+        widget.bind("<Enter>",    lambda _e, f=outer: f.configure(fg_color=self.CARD_HOVER))
+        widget.bind("<Leave>",    lambda _e, f=outer: f.configure(fg_color=self.CARD_BG))
+        for child in widget.winfo_children():
+            self._bind_card(child, cmd, outer)
+
     def _card(self, parent, num: str, emoji: str, title: str,
               subtitle: str, cmd):
         """Tarjeta compacta para las columnas de fases."""
@@ -390,11 +398,8 @@ class MenuApp(ctk.CTk):
             text_color=self.SUBTITLE, width=20,
         ).pack(side="right", padx=8)
 
-        # Hover + clic en toda la tarjeta
-        for w in (outer, txt):
-            w.bind("<Button-1>", lambda _e, c=cmd: c())
-            w.bind("<Enter>", lambda _e, f=outer: f.configure(fg_color=self.CARD_HOVER))
-            w.bind("<Leave>", lambda _e, f=outer: f.configure(fg_color=self.CARD_BG))
+        # Hover + clic en toda la tarjeta (incluyendo todos los labels hijos)
+        self._bind_card(outer, cmd, outer)
 
     def _wide_card(self, parent, emoji: str, num: str, title: str,
                    subtitle: str, cmd, accent: bool = False):
@@ -436,10 +441,14 @@ class MenuApp(ctk.CTk):
             text_color=fg_sub, width=28,
         ).pack(side="right", padx=16)
 
-        for w in (outer, txt):
+        # Hover + clic en toda la tarjeta ancha (incluyendo todos los labels hijos)
+        for w in outer.winfo_children():
             w.bind("<Button-1>", lambda _e, c=cmd: c())
-            w.bind("<Enter>", lambda _e, f=outer: f.configure(fg_color=bg_hov))
-            w.bind("<Leave>", lambda _e, f=outer: f.configure(fg_color=bg))
+            w.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
+            w.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
+        outer.bind("<Button-1>", lambda _e, c=cmd: c())
+        outer.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
+        outer.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
 
     def _status(self, msg: str):
         self.after(0, self._status_var.set, msg)
