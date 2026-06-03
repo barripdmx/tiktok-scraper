@@ -261,13 +261,13 @@ class MenuApp(ctk.CTk):
                    "Nubes de palabras",
                    lambda: run_script("src/analysis/analitica_comentarios.py",
                                       status_cb=self._status))
-        self._card(col2, "6", "🤖", "Sentimiento con IA",
+        self._card(col2, "6", "🤖", "Sentimiento con IA (Comentarios)",
                    "RoBERTa · Groq · Mistral",
                    lambda: run_script("src/analysis/analizar_sentimiento.py",
                                       status_cb=self._status))
-        self._card(col2, "7", "🔄", "Comparativa Usuarios",
-                   "Entre distintas cuentas",
-                   lambda: run_script("src/analysis/comparativa_usuarios.py",
+        self._card(col2, "7", "🧠", "Gráficas Multidimensionales de Comentarios",
+                   "Sesgo · Arquetipo · Intención · Pain points",
+                   lambda: run_script("src/visualization/grafica_multidimensional.py",
                                       status_cb=self._status))
 
         # ---- Fase 3 ----
@@ -275,21 +275,21 @@ class MenuApp(ctk.CTk):
         self._card(col3, "8", "📄", "Informe HTML",
                    "Elige proyecto → genera + abre informe",
                    lambda: generar_informe(status_cb=self._status))
-        self._card(col3, "9", "🧠", "Gráficas Multidimensionales",
-                   "Sesgo · Arquetipo · Intención · Pain points",
-                   lambda: run_script("src/visualization/grafica_multidimensional.py",
-                                      status_cb=self._status))
-        self._card(col3, "10", "🕸️", "Grafo de Redes",
+        self._card(col3, "9", "🕸️", "Grafo de Redes",
                    "GEXF para Gephi",
                    lambda: run_script("src/visualization/crear_gexf.py",
                                       status_cb=self._status))
-        self._card(col3, "11", "📅", "Análisis de Bots",
+        self._card(col3, "10", "📅", "Análisis de Bots",
                    "Fechas creación de cuentas",
                    lambda: run_script("src/utils/enriquecer_csv_fechas_creacion.py",
                                       status_cb=self._status))
 
         # ---- Otros ----
         col4 = self._column(grid, "📁  Otros", 3)
+        self._card(col4, "11", "🔄", "Comparativa Usuarios",
+                   "Entre distintas cuentas",
+                   lambda: run_script("src/analysis/comparativa_usuarios.py",
+                                      status_cb=self._status))
         self._card(col4, "12", "📂", "Carpeta Outputs",
                    "Ver resultados generados",
                    lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
