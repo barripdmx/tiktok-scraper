@@ -381,7 +381,9 @@ class MenuApp(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=self.TEXT,
             anchor="w",
-        ).pack(anchor="w")
+            justify="left",
+            wraplength=150,
+        ).pack(anchor="w", fill="x")
 
         ctk.CTkLabel(
             txt,
@@ -389,7 +391,9 @@ class MenuApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color=self.SUBTITLE,
             anchor="w",
-        ).pack(anchor="w")
+            justify="left",
+            wraplength=150,
+        ).pack(anchor="w", fill="x")
 
         # Flecha
         ctk.CTkLabel(
