@@ -61,6 +61,10 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+import sys as _sys
+_sys.path.insert(0, BASE_DIR)
+from config.rutas import dataset_dir
+
 COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
 PROFILE_DIR = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 
@@ -569,8 +573,9 @@ def save_results(label: str, rows: list) -> dict:
         "author_verified", "music_title", "music_author", "hashtags",
     ]
 
-    json_path = os.path.join(DATA_DIR, f"{label}_videos_api.json")
-    csv_path  = os.path.join(DATA_DIR, f"{label}_videos_api.csv")
+    proj_dir = dataset_dir(label)
+    json_path = os.path.join(proj_dir, f"{label}_videos_api.json")
+    csv_path  = os.path.join(proj_dir, f"{label}_videos_api.csv")
 
     # JSON
     with open(json_path, "w", encoding="utf-8") as f:

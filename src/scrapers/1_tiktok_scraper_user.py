@@ -40,6 +40,10 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+import sys as _sys
+_sys.path.insert(0, BASE_DIR)
+from config.rutas import dataset_dir
+
 COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
 PROFILE_DIR = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 
@@ -353,8 +357,9 @@ async def extract_metadata(context, url, username):
 
 # ------------------- GUARDAR -------------------
 def save_results(username, rows, user_info):
-    json_path = os.path.join(DATA_DIR, f"user_{username}_videos.json")
-    csv_path = os.path.join(DATA_DIR, f"user_{username}_videos.csv")
+    proj_dir = dataset_dir(f"user_{username}")
+    json_path = os.path.join(proj_dir, f"user_{username}_videos.json")
+    csv_path = os.path.join(proj_dir, f"user_{username}_videos.csv")
     
     output = {
         "user_info": user_info,

@@ -30,6 +30,7 @@ _sys.path.insert(0, BASE_DIR)
 from config.viz_style import (
     PALETA, PALETA_CAT, COLOR_MARCA, STAT_BOX, apply_estilo_periodistico
 )
+from config.rutas import derivar_proyecto, dir_publicaciones
 
 # Mapa de traducción para entradas de usuario (nombre → código hex)
 COLOR_TRANSLATOR = {
@@ -46,8 +47,7 @@ COLOR_TRANSLATOR = {
 def create_output_folder(file_id=None):
     global OUTPUT_FOLDER
     if file_id:
-        project = file_id.split('_videos')[0] if '_videos' in file_id else file_id
-        OUTPUT_FOLDER = os.path.join(OUTPUT_BASE, project, "publicaciones")
+        OUTPUT_FOLDER = dir_publicaciones(derivar_proyecto(file_id))
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def save_plot(filename, tight=True):

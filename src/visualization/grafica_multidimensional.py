@@ -1047,19 +1047,11 @@ def main():
         return
 
     # ── Carpeta de salida ────────────────────────────────────────────────────
-    nombre_base = os.path.splitext(os.path.basename(csv_path))[0]
-    # Derivar file_id: eliminar sufijos de sentimiento para obtener la raíz del proyecto
-    file_id = nombre_base
-    for sufijo in ["_con_sentimiento_mistral", "_con_sentimiento_groq",
-                   "_con_sentimiento_gemini", "_con_sentimiento"]:
-        if file_id.endswith(sufijo):
-            file_id = file_id[: -len(sufijo)]
-            break
-
-    # Buscar la raíz del proyecto (dos niveles arriba desde este archivo)
+    # Carpeta de salida — fuente única de verdad para las rutas del proyecto
     _BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    carpeta_salida = os.path.join(_BASE, "outputs", file_id, "graficas_multidimensionales")
-    os.makedirs(carpeta_salida, exist_ok=True)
+    sys.path.insert(0, _BASE)
+    from config.rutas import derivar_proyecto, dir_multidimensionales
+    carpeta_salida = dir_multidimensionales(derivar_proyecto(csv_path))
 
     print(f"\n  Generando gráficas en: {carpeta_salida}\n")
 

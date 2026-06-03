@@ -28,6 +28,7 @@ _sys.path.insert(0, BASE_DIR)
 from config.viz_style import (
     PALETA, PALETA_CAT, COLOR_MARCA, STAT_BOX, apply_estilo_periodistico
 )
+from config.rutas import derivar_proyecto, dir_graficas_comentarios, dir_polaridad
 PROFESSIONAL_PALETTE = PALETA_CAT  # alias para compatibilidad
 
 # Diccionario Maestro de Colores (Traducción + Branding)
@@ -54,9 +55,9 @@ from config.lexicon_sentimiento import (
 def create_output_folder(file_id=None):
     global OUTPUT_FOLDER, POLARIDAD_FOLDER
     if file_id:
-        project = file_id.split('_videos')[0] if '_videos' in file_id else file_id
-        OUTPUT_FOLDER    = os.path.join(OUTPUT_BASE, project, "comentarios")
-        POLARIDAD_FOLDER = os.path.join(OUTPUT_BASE, project, "polaridad_ia")
+        project = derivar_proyecto(file_id)
+        OUTPUT_FOLDER    = dir_graficas_comentarios(project)
+        POLARIDAD_FOLDER = dir_polaridad(project)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     os.makedirs(POLARIDAD_FOLDER, exist_ok=True)
     print(f"Carpeta comentarios: {OUTPUT_FOLDER}")

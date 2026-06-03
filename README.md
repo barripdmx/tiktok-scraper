@@ -248,6 +248,43 @@ tiktok-scraper/
 
 ---
 
+## 🗂️ Estructura de carpetas por proyecto
+
+Cada búsqueda (un usuario o un hashtag) es un **proyecto**. Todos sus datos y
+resultados se agrupan en una carpeta con el nombre del proyecto, para que nada se
+mezcle entre búsquedas distintas.
+
+**Datos descargados** — `data/{proyecto}/`:
+```
+data/
+ └─ zapatero_zp_plus_ultra/
+     ├─ zapatero_zp_plus_ultra_videos_api.csv                     ← vídeos
+     ├─ ..._comentarios_api.csv                                   ← comentarios
+     ├─ ..._con_sentimiento_mistral.csv                           ← + análisis IA
+     └─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
+```
+
+**Resultados generados** — `outputs/{proyecto}/`:
+```
+outputs/
+ └─ zapatero_zp_plus_ultra/
+     ├─ informes/                          ← informe HTML final
+     ├─ graficas_videos/
+     │   └─ publicaciones/                 ← gráficas de rendimiento de vídeos
+     └─ graficas_comentarios/
+         ├─ (nubes de palabras, hashtags, heatmaps…)
+         ├─ graficas_multidimensionales/   ← sesgo, arquetipo, intención
+         ├─ graficas_patrones_cuentas/     ← patrones de bots + cuentas_a_revisar.csv
+         └─ polaridad_ia/                  ← sentimiento
+```
+
+> **¿Tienes archivos de versiones anteriores sueltos en `data/`?** Ejecuta una vez
+> `python scripts/migrar_estructura.py` (muestra el plan) y luego
+> `python scripts/migrar_estructura.py --aplicar` para reorganizarlo todo
+> automáticamente a esta estructura.
+
+---
+
 ## ❓ Preguntas frecuentes
 
 **¿Necesito pagar algo?**

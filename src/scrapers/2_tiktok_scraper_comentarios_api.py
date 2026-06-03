@@ -1047,10 +1047,12 @@ async def main():
     urls     = cargar_urls_desde_csv(ruta_csv)
     print(f"📊 Videos encontrados: {len(urls)}")
     base    = os.path.splitext(os.path.basename(ruta_csv))[0]
-    out_csv = os.path.join(DATA_DIR, f"{base}_comentarios_api.csv")
+    # Guardar junto al CSV de vídeos de entrada → cae solo en data/{proyecto}/
+    dest_dir = os.path.dirname(os.path.abspath(ruta_csv)) or DATA_DIR
+    out_csv = os.path.join(dest_dir, f"{base}_comentarios_api.csv")
     unavailable_csv = out_csv.replace(".csv", "_no_disponibles.csv")
 
-    checkpoint_path = os.path.join(DATA_DIR, f"{base}{CHECKPOINT_SUFFIX}")
+    checkpoint_path = os.path.join(dest_dir, f"{base}{CHECKPOINT_SUFFIX}")
     processed_ids   = []
 
     if not skip_checkpoint:

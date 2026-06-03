@@ -625,17 +625,9 @@ def main():
     print(f"  Con fecha creación : {con_fecha:,} "
           f"({con_fecha / max(len(cuentas), 1) * 100:.1f}%)")
 
-    # ── Carpeta de salida ─────────────────────────────────────────────────────
-    nombre_base = os.path.splitext(os.path.basename(csv_path))[0]
-    file_id = nombre_base
-    for suf in ["_comentarios_api_enriquecido_fechas_creacion",
-                "_enriquecido_fechas_creacion", "_enriquecido"]:
-        if suf in file_id:
-            file_id = file_id.split(suf)[0]
-            break
-
-    carpeta = os.path.join(_BASE, "outputs", file_id, "graficas_patrones_cuentas")
-    os.makedirs(carpeta, exist_ok=True)
+    # ── Carpeta de salida — fuente única de verdad para las rutas ──────────────
+    from config.rutas import derivar_proyecto, dir_patrones
+    carpeta = dir_patrones(derivar_proyecto(csv_path))
     print(f"\n  Generando en: {carpeta}\n")
 
     # ── Generar y guardar PNG ─────────────────────────────────────────────────

@@ -83,6 +83,7 @@ def derive_title(file_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, BASE_DIR)
 OUTPUTS_BASE    = os.path.join(BASE_DIR, "outputs")
 OUTPUT_FOLDER   = OUTPUTS_BASE   # se sobreescribe en main() con outputs/{project}/publicaciones
 INFORMES_FOLDER = OUTPUTS_BASE   # se sobreescribe en main() con outputs/{project}/informes
@@ -2138,13 +2139,12 @@ def main():
     file_id   = os.path.splitext(base_name)[0]
     print(f"\n📂 Archivo : {base_name}")
 
-    # ── Rutas de salida basadas en proyecto ───────────────────────────────
+    # ── Rutas de salida basadas en proyecto (fuente única de verdad) ───────
     global OUTPUT_FOLDER, INFORMES_FOLDER
-    _project = file_id.split("_videos")[0] if "_videos" in file_id else file_id
-    OUTPUT_FOLDER   = os.path.join(OUTPUTS_BASE, _project, "publicaciones")
-    INFORMES_FOLDER = os.path.join(OUTPUTS_BASE, _project, "informes")
-    os.makedirs(OUTPUT_FOLDER,   exist_ok=True)
-    os.makedirs(INFORMES_FOLDER, exist_ok=True)
+    from config.rutas import derivar_proyecto, dir_publicaciones, dir_informes
+    _project = derivar_proyecto(file_id)
+    OUTPUT_FOLDER   = dir_publicaciones(_project)
+    INFORMES_FOLDER = dir_informes(_project)
     print(f"   Imágenes : {OUTPUT_FOLDER}")
     print(f"   Informe  : {INFORMES_FOLDER}")
 
