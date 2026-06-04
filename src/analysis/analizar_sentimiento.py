@@ -738,15 +738,20 @@ def main():
     print("  Sentimiento · Sesgo · Arquetipo · Intención · Pain points")
     print("=" * 60)
 
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes('-topmost', True)
-    csv_file = filedialog.askopenfilename(
-        title="Selecciona CSV de comentarios",
-        filetypes=[("CSV Files", "*.csv")],
-        initialdir=DATA_DIR,
-    )
-    root.destroy()
+    # Acepta ruta como argumento (lo pasa el menú cuando hay proyecto activo)
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        csv_file = sys.argv[1]
+        print(f"\n  Archivo: {os.path.basename(csv_file)}")
+    else:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        csv_file = filedialog.askopenfilename(
+            title="Selecciona CSV de comentarios",
+            filetypes=[("CSV Files", "*.csv")],
+            initialdir=DATA_DIR,
+        )
+        root.destroy()
 
     if not csv_file:
         print("Operación cancelada.")

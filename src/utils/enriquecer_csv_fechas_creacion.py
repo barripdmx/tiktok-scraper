@@ -187,18 +187,22 @@ def main():
     from tkinter import filedialog, simpledialog, messagebox
 
     # ── Selector de CSV ──────────────────────────────────────────────────────
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
+    # Acepta ruta como argumento (lo pasa el menú cuando hay proyecto activo)
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        source_csv = sys.argv[1]
+    else:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
 
-    source_csv = filedialog.askopenfilename(
-        title="Selecciona el CSV con cuentas de TikTok a analizar",
-        filetypes=[
-            ("CSV de comentarios", "*comentarios*.csv"),
-            ("Todos los CSV", "*.csv"),
-        ],
-    )
-    root.destroy()
+        source_csv = filedialog.askopenfilename(
+            title="Selecciona el CSV con cuentas de TikTok a analizar",
+            filetypes=[
+                ("CSV de comentarios", "*comentarios*.csv"),
+                ("Todos los CSV", "*.csv"),
+            ],
+        )
+        root.destroy()
 
     if not source_csv:
         print("Operación cancelada.")

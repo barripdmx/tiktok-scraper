@@ -572,17 +572,22 @@ def main():
     import tkinter as tk
     from tkinter import filedialog, messagebox
 
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    csv_path = filedialog.askopenfilename(
-        title="Selecciona el CSV ENRIQUECIDO con fechas de creación de cuentas",
-        filetypes=[
-            ("CSV enriquecido", "*enriquecido*.csv"),
-            ("Todos los CSV", "*.csv"),
-        ],
-    )
-    root.destroy()
+    # Acepta ruta como argumento (lo pasa el menú cuando hay proyecto activo)
+    import sys as _sys
+    if len(_sys.argv) > 1 and os.path.isfile(_sys.argv[1]):
+        csv_path = _sys.argv[1]
+    else:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        csv_path = filedialog.askopenfilename(
+            title="Selecciona el CSV ENRIQUECIDO con fechas de creación de cuentas",
+            filetypes=[
+                ("CSV enriquecido", "*enriquecido*.csv"),
+                ("Todos los CSV", "*.csv"),
+            ],
+        )
+        root.destroy()
 
     if not csv_path:
         print("Operación cancelada.")

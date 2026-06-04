@@ -228,12 +228,20 @@ def main():
     
     archivos_cargados = []
     all_rows = []
-    
+
+    # Pre-carga el primer archivo si viene como argumento (del menú con proyecto activo)
+    import sys as _sys
+    _preload = _sys.argv[1] if len(_sys.argv) > 1 and os.path.isfile(_sys.argv[1]) else None
+
     while True:
         print(f"📂 Archivos cargados: {len(archivos_cargados)}")
-        print("   Selecciona un archivo CSV...")
-        
-        ruta = seleccionar_archivo()
+        if _preload:
+            ruta = _preload
+            _preload = None  # solo la primera vez
+            print(f"   Cargando automáticamente: {os.path.basename(ruta)}")
+        else:
+            print("   Selecciona un archivo CSV...")
+            ruta = seleccionar_archivo()
         
         if not ruta:
             if not archivos_cargados:

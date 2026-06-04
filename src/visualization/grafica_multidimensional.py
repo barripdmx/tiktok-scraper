@@ -1020,18 +1020,22 @@ def main():
     from tkinter import filedialog, messagebox
 
     # ── Selector de CSV ──────────────────────────────────────────────────────
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
+    # Acepta ruta como argumento (lo pasa el menú cuando hay proyecto activo)
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        csv_path = sys.argv[1]
+    else:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
 
-    csv_path = filedialog.askopenfilename(
-        title="Selecciona el CSV con análisis de sentimiento (Mistral o Groq)",
-        filetypes=[
-            ("CSV con sentimiento", "*con_sentimiento*.csv"),
-            ("Todos los CSV", "*.csv"),
-        ],
-    )
-    root.destroy()
+        csv_path = filedialog.askopenfilename(
+            title="Selecciona el CSV con análisis de sentimiento (Mistral o Groq)",
+            filetypes=[
+                ("CSV con sentimiento", "*con_sentimiento*.csv"),
+                ("Todos los CSV", "*.csv"),
+            ],
+        )
+        root.destroy()
 
     if not csv_path:
         print("Operación cancelada.")
