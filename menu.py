@@ -379,7 +379,15 @@ class MenuApp(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _scan_project_files(self, folder: str) -> dict[str, str]:
-        """Clasifica los CSV de un proyecto por tipo."""
+        """Clasifica los CSV de un proyecto por tipo.
+
+        Orden de prioridad (más específico primero para evitar falsos positivos):
+          enriched   — *enriquecido_fechas_creacion*.csv
+          sentiment  — *con_sentimiento*.csv
+          comments   — *comentarios_api*.csv  (excluye lookup/enriquecido/sentimiento)
+          videos     — *videos_api*.csv        (excluye comentarios)
+        Los archivos _lookup_fechas_creacion y _checkpoint se ignoran.
+        """
         result = {}
         try:
             for f in sorted(os.listdir(folder)):
@@ -387,13 +395,16 @@ class MenuApp(ctk.CTk):
                     continue
                 p  = os.path.join(folder, f)
                 nl = f.lower()
+                # Archivos internos/auxiliares — ignorar
+                if "lookup_fechas_creacion" in nl or "_checkpoint" in nl:
+                    continue
                 if "enriquecido_fechas_creacion" in nl:
                     result["enriched"] = p
                 elif "con_sentimiento" in nl:
                     result["sentiment"] = p
                 elif "comentarios_api" in nl:
                     result["comments"] = p
-                elif "videos_api" in nl:
+                elif "videos_api" in nl and "comentarios" not in nl:
                     result["videos"] = p
         except OSError:
             pass
