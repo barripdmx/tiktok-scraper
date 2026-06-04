@@ -100,6 +100,17 @@ def _to_base64_png(fig):
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode()
 
+def _col_likes(df: pd.DataFrame):
+    """Devuelve el nombre de la columna de likes presente en el CSV.
+
+    El scraper actual guarda 'likes'; versiones antiguas usaban 'likes_count'.
+    Devuelve None si no hay ninguna.
+    """
+    for c in ("likes", "likes_count"):
+        if c in df.columns:
+            return c
+    return None
+
 
 # ============================================================================
 # GRÁFICA 1: Heatmap Sesgo × Sentimiento
@@ -320,8 +331,10 @@ def grafica_volumen_vs_influencia(df: pd.DataFrame) -> str:
         return ""
 
     # Agrupar por sesgo: contar comentarios y sumar likes
-    if 'likes_count' not in df.columns:
-        # Sin likes_count, usar solo nº de comentarios por sesgo
+    col_likes = _col_likes(df)
+    usa_likes = col_likes is not None
+    if not usa_likes:
+        # Sin columna de likes, usar solo nº de comentarios por sesgo (proxy)
         df_clean = df[['bias']].dropna()
         if df_clean.empty:
             return ""
@@ -331,13 +344,13 @@ def grafica_volumen_vs_influencia(df: pd.DataFrame) -> str:
         agg['influencia'] = agg['comentarios']  # Proxy: mismo volumen
         agg['varianza'] = agg['comentarios'] * 10  # Para tamaño de burbuja
     else:
-        df_clean = df[['bias', 'likes_count']].dropna()
+        df_clean = df[['bias', col_likes]].dropna()
         if df_clean.empty:
             return ""
 
         df_clean['bias_norm'] = df_clean['bias'].apply(_normalize_bias)
         agg = df_clean.groupby('bias_norm').agg({
-            'likes_count': ['sum', 'var', 'count']
+            col_likes: ['sum', 'var', 'count']
         }).reset_index()
         agg.columns = ['bias_norm', 'influencia', 'varianza', 'comentarios']
         agg['varianza'] = agg['varianza'].fillna(0) + 1  # Evitar tamaño cero
@@ -360,7 +373,8 @@ def grafica_volumen_vs_influencia(df: pd.DataFrame) -> str:
                    fontsize=9, ha="center", va="center", fontweight="bold")
 
     ax.set_xlabel("Nº de comentarios", fontsize=11)
-    ax.set_ylabel("Suma de likes", fontsize=11)
+    ax.set_ylabel("Suma de likes" if usa_likes else "Nº de comentarios (sin datos de likes)",
+                  fontsize=11)
     ax.set_title("Volumen vs Influencia por Sesgo Político",
                 fontsize=12, fontweight="bold", pad=15)
     ax.grid(True, alpha=0.3, linestyle="--", color="#CCCCCC")
@@ -664,11 +678,12 @@ def grafica_likes_por_sentimiento(df: pd.DataFrame) -> str:
     Diagrama de caja (boxplot) o barras de promedio de likes por sentimiento.
     Responde: ¿los comentarios negativos reciben más likes?
     """
-    if 'sentiment' not in df.columns or 'likes_count' not in df.columns:
+    col_likes = _col_likes(df)
+    if 'sentiment' not in df.columns or col_likes is None:
         return ""
 
-    df_l = df[['sentiment', 'likes_count']].dropna().copy()
-    df_l = df_l[df_l['likes_count'] >= 0]
+    df_l = df[['sentiment', col_likes]].dropna().copy()
+    df_l = df_l[df_l[col_likes] >= 0]
     df_l['sent_norm'] = df_l['sentiment'].apply(_normalize_sentiment)
 
     if df_l.empty:
@@ -678,7 +693,7 @@ def grafica_likes_por_sentimiento(df: pd.DataFrame) -> str:
     colores = {'Positivo': '#1E8449', 'Neutro': '#4A4A4A', 'Negativo': '#A93226'}
 
     # Agrupar: mediana + media
-    stats = (df_l.groupby('sent_norm')['likes_count']
+    stats = (df_l.groupby('sent_norm')[col_likes]
              .agg(['median', 'mean', 'count'])
              .loc[orden])
 
@@ -774,8 +789,9 @@ def grafica_top_comentaristas_por_arquetipo(df: pd.DataFrame, top_arq: int = 3, 
     if 'archetype' not in df.columns:
         return ""
 
+    # 'autor_handle' es el comentarista; 'username' es el dueño del vídeo (no usar).
     col_autor = None
-    for c in ['author_id', 'author', 'username', 'user_id', 'uniqueId']:
+    for c in ['autor_handle', 'autor_nombre', 'author_id', 'author', 'user_id', 'uniqueId']:
         if c in df.columns:
             col_autor = c
             break
@@ -1052,6 +1068,15 @@ def main():
     sys.path.insert(0, _BASE)
     from config.rutas import derivar_proyecto, dir_multidimensionales
     carpeta_salida = dir_multidimensionales(derivar_proyecto(csv_path))
+
+    # Limpiar PNGs previos (incluye la nomenclatura antigua 1_…6_) para que no
+    # queden duplicados obsoletos junto a los nuevos 01_…14_.
+    import glob as _glob
+    for _viejo in _glob.glob(os.path.join(carpeta_salida, "*.png")):
+        try:
+            os.remove(_viejo)
+        except OSError:
+            pass
 
     print(f"\n  Generando gráficas en: {carpeta_salida}\n")
 

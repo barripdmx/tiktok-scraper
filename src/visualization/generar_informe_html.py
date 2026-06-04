@@ -452,6 +452,14 @@ def build_dimensiones_extra(df_s) -> str:
             grafica_heatmap_sesgo_pain_point,
             grafica_volumen_vs_influencia,
             grafica_sarcasmo_en_negativo,
+            grafica_intencion,
+            grafica_evolucion_sesgo_temporal,
+            grafica_sentimiento_por_video,
+            grafica_likes_por_sentimiento,
+            grafica_heatmap_intencion_sesgo,
+            grafica_top_comentaristas_por_arquetipo,
+            grafica_sarcasmo_por_sesgo,
+            grafica_evolucion_arquetipos_temporal,
         )
         _HAS_GRAFICAS = True
     except ImportError:
@@ -524,6 +532,95 @@ def build_dimensiones_extra(df_s) -> str:
     </p>
     <figure><img src="data:image/png;base64,{b64}" alt="Sarcasmo en NEG"
         style="max-width:500px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 7: Intención de los comentarios
+        b64 = grafica_intencion(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Intención de los Comentarios</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      ¿Qué busca cada comentario? Difusión, castigo, apoyo, crítica…
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Intención de los comentarios"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 8: Evolución temporal del sesgo
+        b64 = grafica_evolucion_sesgo_temporal(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Evolución Temporal del Sesgo Político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Cómo cambia la composición política de los comentarios a lo largo del tiempo.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Evolución temporal del sesgo"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 9: Sentimiento por vídeo
+        b64 = grafica_sentimiento_por_video(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Vídeos con Mayor % de Comentarios Negativos</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Reparto POS/NEU/NEG por vídeo (solo vídeos con ≥10 comentarios).
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Sentimiento por vídeo"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 10: Likes por sentimiento
+        b64 = grafica_likes_por_sentimiento(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">¿Qué Sentimiento Recibe más Likes?</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Mediana y media de likes por comentario según su sentimiento.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Likes por sentimiento"
+        style="max-width:600px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 11: Heatmap Intención × Sesgo
+        b64 = grafica_heatmap_intencion_sesgo(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Intención por Sesgo Político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      ¿Quién quiere castigar y quién difundir? Cruce de intención y bloque político.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Heatmap Intención × Sesgo"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 12: Top comentaristas por arquetipo
+        b64 = grafica_top_comentaristas_por_arquetipo(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Comentaristas más Activos por Arquetipo</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Cuentas más activas dentro de cada arquetipo dominante — útil para detectar
+      actividad coordinada.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Top comentaristas por arquetipo"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 13: Sarcasmo por sesgo
+        b64 = grafica_sarcasmo_por_sesgo(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Sarcasmo por Sesgo Político</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Proporción de comentarios sarcásticos dentro de cada bloque político.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Sarcasmo por sesgo"
+        style="max-width:700px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
+
+        # Gráfica 14: Evolución de arquetipos
+        b64 = grafica_evolucion_arquetipos_temporal(df_s)
+        if b64:
+            graficas_section += f"""
+    <h3 style="margin-top:28px;">Evolución Mensual de Arquetipos</h3>
+    <p class="muted" style="font-size:12px;margin-top:-4px;">
+      Cómo evolucionan los arquetipos de comentarista a lo largo del tiempo.
+    </p>
+    <figure><img src="data:image/png;base64,{b64}" alt="Evolución de arquetipos"
+        style="max-width:900px;border-radius:8px;background:#fff;margin:15px 0;"></figure>"""
 
         if graficas_section:
             bloques.append(graficas_section)

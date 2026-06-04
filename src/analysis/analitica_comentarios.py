@@ -544,7 +544,8 @@ def generar_grafica_sentimiento(df, file_id, bar_color):
     print("\n--- 5. Generando gráfica de distribución de sentimiento ---")
 
     counts = df['sentimiento'].value_counts().reindex(["positivo", "neutro", "negativo"], fill_value=0)
-    colores = ["#A93226", "#95a5a6", "#4A4A4A"]
+    # Convenio del proyecto: positivo verde, neutro gris, negativo rojo.
+    colores = ["#1E8449", "#95a5a6", "#A93226"]
     total = counts.sum()
 
     # Título declarativo con el dato más relevante
@@ -586,8 +587,8 @@ def generar_top_emojis(df, file_id):
     font_emoji = "C:/Windows/Fonts/seguiemj.ttf"
 
     for sentimiento, color, label in [
-        ("positivo", "#A93226", "POSITIVOS"),
-        ("negativo", "#4A4A4A", "NEGATIVOS"),
+        ("positivo", "#1E8449", "POSITIVOS"),
+        ("negativo", "#A93226", "NEGATIVOS"),
     ]:
         subset = df[df['sentimiento'] == sentimiento]
         if subset.empty:
@@ -863,18 +864,18 @@ def generar_evolucion_sentimiento_acumulada(df, file_id):
         fig.patch.set_facecolor('#FFFFFF')
 
         # Líneas acumuladas (sin fill_between — Tufte: data-ink ratio)
-        ax.plot(x, pos_acum.values, color='#A93226', linewidth=2.5, marker='o', markersize=3, zorder=3)
-        ax.plot(x, neg_acum.values, color='#4A4A4A', linewidth=2.5, marker='o', markersize=3, zorder=3)
+        ax.plot(x, pos_acum.values, color='#1E8449', linewidth=2.5, marker='o', markersize=3, zorder=3)
+        ax.plot(x, neg_acum.values, color='#A93226', linewidth=2.5, marker='o', markersize=3, zorder=3)
 
         # Etiquetas directas al final de cada línea (sin leyenda separada)
         bbox_style = dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9, edgecolor='#CCCCCC', linewidth=0.5)
         ax.annotate(f"Positivos\n{pos_acum.values[-1]:,}",
                     xy=(x[-1], pos_acum.values[-1]), xytext=(12, 0),
-                    textcoords='offset points', color='#A93226', fontweight='bold', fontsize=10,
+                    textcoords='offset points', color='#1E8449', fontweight='bold', fontsize=10,
                     va='center', bbox=bbox_style)
         ax.annotate(f"Negativos\n{neg_acum.values[-1]:,}",
                     xy=(x[-1], neg_acum.values[-1]), xytext=(12, 0),
-                    textcoords='offset points', color='#4A4A4A', fontweight='bold', fontsize=10,
+                    textcoords='offset points', color='#A93226', fontweight='bold', fontsize=10,
                     va='center', bbox=bbox_style)
 
         # Título declarativo
@@ -938,7 +939,7 @@ def generar_nubes_sentimiento(df, file_id):
         palabras_pos = [w for w in texto_pos.lower().split() if w in PALABRAS_POSITIVAS]
         wc_pos = None
         if palabras_pos:
-            wc_pos = WordCloud(background_color="white", colormap='Reds',
+            wc_pos = WordCloud(background_color="white", colormap='Greens',
                                width=WC_W, height=WC_H, max_words=200, collocations=False
                                ).generate(" ".join(palabras_pos)).to_array()
 
@@ -946,12 +947,12 @@ def generar_nubes_sentimiento(df, file_id):
         palabras_neg = [w for w in texto_neg.lower().split() if w in PALABRAS_NEGATIVAS]
         wc_neg = None
         if palabras_neg:
-            wc_neg = WordCloud(background_color="white", colormap='Greys',
+            wc_neg = WordCloud(background_color="white", colormap='Reds',
                                width=WC_W, height=WC_H, max_words=200, collocations=False
                                ).generate(" ".join(palabras_neg)).to_array()
 
-        _nube_con_titulo(fig, gs[0, 0], gs[1, 0], 'PALABRAS DE APOYO / POSITIVAS', '#A93226', wc_pos)
-        ax_wm = _nube_con_titulo(fig, gs[0, 1], gs[1, 1], 'PALABRAS DE CRÍTICA / NEGATIVAS', '#4A4A4A', wc_neg)
+        _nube_con_titulo(fig, gs[0, 0], gs[1, 0], 'PALABRAS DE APOYO / POSITIVAS', '#1E8449', wc_pos)
+        ax_wm = _nube_con_titulo(fig, gs[0, 1], gs[1, 1], 'PALABRAS DE CRÍTICA / NEGATIVAS', '#A93226', wc_neg)
         fig.suptitle(f"palabras de apoyo y crítica en comentarios de {_get_account(file_id)}",
                      fontsize=13, color='#444444', y=0.98)
         _add_watermark(ax_wm)
@@ -971,7 +972,7 @@ def generar_nubes_sentimiento(df, file_id):
         emojis_pos = ''.join(c for c in "".join(df_pos['texto'].dropna()) if c in EMOJIS_POSITIVOS)
         if emojis_pos:
             try:
-                wc_pos = WordCloud(font_path=font, background_color='white', colormap='Reds',
+                wc_pos = WordCloud(font_path=font, background_color='white', colormap='Greens',
                                    width=WC_W, height=WC_H, regexp=r"\S"
                                    ).generate(" ".join(emojis_pos)).to_array()
             except OSError:
@@ -981,14 +982,14 @@ def generar_nubes_sentimiento(df, file_id):
         emojis_neg = ''.join(c for c in "".join(df_neg['texto'].dropna()) if c in EMOJIS_NEGATIVOS)
         if emojis_neg:
             try:
-                wc_neg = WordCloud(font_path=font, background_color='white', colormap='Greys',
+                wc_neg = WordCloud(font_path=font, background_color='white', colormap='Reds',
                                    width=WC_W, height=WC_H, regexp=r"\S"
                                    ).generate(" ".join(emojis_neg)).to_array()
             except OSError:
                 print("-> Fuente emoji no encontrada para negativos.")
 
-        _nube_con_titulo(fig, gs[0, 0], gs[1, 0], 'EMOJIS DE APOYO / POSITIVOS', '#A93226', wc_pos)
-        ax_wm = _nube_con_titulo(fig, gs[0, 1], gs[1, 1], 'EMOJIS DE CRÍTICA / NEGATIVOS', '#4A4A4A', wc_neg)
+        _nube_con_titulo(fig, gs[0, 0], gs[1, 0], 'EMOJIS DE APOYO / POSITIVOS', '#1E8449', wc_pos)
+        ax_wm = _nube_con_titulo(fig, gs[0, 1], gs[1, 1], 'EMOJIS DE CRÍTICA / NEGATIVOS', '#A93226', wc_neg)
         fig.suptitle(f"emojis de apoyo y crítica en comentarios de {_get_account(file_id)}",
                      fontsize=13, color='#444444', y=0.98)
         _add_watermark(ax_wm)
