@@ -290,15 +290,11 @@ class MenuApp(ctk.CTk):
 
         # ---- Otros ----
         col4 = self._column(grid, "📁  Otros", 3)
-        self._card(col4, "12", "🔄", "Comparativa Usuarios",
-                   "Entre distintas cuentas",
-                   lambda: run_script("src/analysis/comparativa_usuarios.py",
-                                      status_cb=self._status))
-        self._card(col4, "13", "📂", "Carpeta Outputs",
+        self._card(col4, "12", "📂", "Carpeta Outputs",
                    "Ver resultados generados",
                    lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
                                          status_cb=self._status))
-        self._card(col4, "14", "🗂️", "Carpeta Proyecto",
+        self._card(col4, "13", "🗂️", "Carpeta Proyecto",
                    "Raíz del proyecto",
                    lambda: abrir_carpeta(_project_root(), status_cb=self._status))
 
