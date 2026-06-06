@@ -231,7 +231,7 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
         await asyncio.sleep(random.uniform(*SCROLL_PAUSE))
         prev_count = cur
     
-    await save_cookies(context)
+    await save_cookies(context, COOKIES_PATH)
     await page.close()
 
     log.info("Fin recolección URLs | motivo='%s' | videos_url=%d", motivo_parada, len(video_urls))
