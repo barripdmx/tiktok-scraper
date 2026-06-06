@@ -1,14 +1,97 @@
 # -*- coding: utf-8 -*-
 """
-Menú principal — CustomTkinter, modo claro, layout apaisado.
-Configuración ocupa todo el ancho; barra de proyecto activo; debajo 4 columnas.
+Menú principal — CustomTkinter, modo claro, navegación horizontal multinivel.
+
+Niveles de navegación:
+  Nivel 1  Pestaña principal   👤 Usuario | #️⃣ Hashtag  (segmented button)
+  Nivel 2  Módulos compartidos del flujo (solo "Captura" cambia según pestaña)
+  Nivel 3  Acciones del módulo activo (solo si tiene más de una)
+  Panel    Descripción + estado del CSV requerido + botón ▶ Ejecutar
+
+La estructura se define en la constante declarativa MODULES; la UI y el
+dispatch se generan a partir de ella. Para añadir una opción nueva basta con
+agregar un dict a MODULES (o una acción a su lista "actions").
 """
 
 import os
 import sys
+import json
 import threading
 import subprocess
 import customtkinter as ctk
+
+# ---------------------------------------------------------------------------
+# Configuración declarativa de la navegación
+# ---------------------------------------------------------------------------
+
+def A(label, icon, *, script=None, file_key=None, run=None, help=""):
+    """Crea la definición de una acción ejecutable."""
+    return {"label": label, "icon": icon, "script": script,
+            "file_key": file_key, "run": run, "help": help}
+
+
+# Pestañas de primer nivel (solo cambian la acción de captura)
+TABS = [
+    ("usuario", "Usuario", "👤"),
+    ("hashtag", "Hashtag", "#"),
+]
+
+# Módulos del flujo compartido. El módulo "captura" define una acción distinta
+# por pestaña (per_tab); el resto son idénticos para Usuario y Hashtag.
+MODULES = [
+    {"id": "captura", "label": "Captura", "icon": "📥", "per_tab": {
+        "usuario": A("Extraer perfil", "👤",
+                     script="src/scrapers/1_tiktok_scraper_user.py",
+                     help="Extrae todos los vídeos de un perfil @usuario."),
+        "hashtag": A("Buscar hashtag", "#",
+                     script="src/scrapers/2_tiktok_scraper_hastag_api.py",
+                     help="Busca y extrae vídeos por hashtag o palabra clave."),
+    }},
+    {"id": "comentarios", "label": "Comentarios", "icon": "💬", "actions": [
+        A("Extraer comentarios", "💬",
+          script="src/scrapers/2_tiktok_scraper_comentarios_api.py",
+          help="Descarga miles de comentarios de las publicaciones (API Pro)."),
+        A("Analítica (nubes)", "🗣️",
+          script="src/analysis/analitica_comentarios.py", file_key="comments",
+          help="Nubes de palabras y métricas sobre los comentarios."),
+    ]},
+    {"id": "edad", "label": "Edad de cuentas", "icon": "📅", "actions": [
+        A("Calcular edades", "📅",
+          script="src/utils/enriquecer_csv_fechas_creacion.py", file_key="comments",
+          help="Enriquece los comentaristas con la fecha de creación de su cuenta."),
+        A("Gráficas de patrones", "🕵️",
+          script="src/visualization/graficas_patrones_cuentas.py", file_key="enriched",
+          help="Detecta patrones de bots: antigüedad, actividad, perfiles vacíos."),
+    ]},
+    {"id": "grafo", "label": "Grafo de redes", "icon": "🕸️", "actions": [
+        A("Generar GEXF", "🕸️",
+          script="src/visualization/crear_gexf.py", file_key="comments",
+          help="Crea un grafo de relaciones (GEXF) para abrir en Gephi."),
+    ]},
+    {"id": "sentimiento", "label": "Sentimiento IA", "icon": "🤖", "actions": [
+        A("Analizar sentimiento", "🤖",
+          script="src/analysis/analizar_sentimiento.py", file_key="comments",
+          help="Clasifica el sentimiento de los comentarios (RoBERTa·Groq·Mistral)."),
+        A("Gráficas multidim.", "🧠",
+          script="src/visualization/grafica_multidimensional.py", file_key="sentiment",
+          help="Sesgo · arquetipo · intención · pain points."),
+    ]},
+    {"id": "multidim", "label": "Gráficas multidim.", "icon": "🧠", "actions": [
+        A("Generar gráficas", "🧠",
+          script="src/visualization/grafica_multidimensional.py", file_key="sentiment",
+          help="Genera el set completo de gráficas multidimensionales."),
+    ]},
+    {"id": "publicaciones", "label": "Publicaciones", "icon": "📈", "actions": [
+        A("Vistas y likes", "📈",
+          script="src/analysis/analitica_publicaciones.py", file_key="videos",
+          help="Analítica de rendimiento de las publicaciones: vistas y likes."),
+    ]},
+    {"id": "informe", "label": "Informe HTML", "icon": "📄", "actions": [
+        A("Generar y abrir", "📄", run="informe", file_key="videos",
+          help="Genera el informe HTML del proyecto y lo abre en el navegador."),
+    ]},
+]
+
 
 # ---------------------------------------------------------------------------
 # Lógica de negocio
@@ -171,7 +254,7 @@ class MenuApp(ctk.CTk):
         super().__init__()
         self.title("TikTok OSINT & Analytics Toolkit")
         self.geometry("960x730")
-        self.minsize(800, 640)
+        self.minsize(820, 600)
         self.configure(fg_color=self.BG)
         self.resizable(True, True)
 
@@ -179,15 +262,52 @@ class MenuApp(ctk.CTk):
         self._active_project: str | None = None      # ruta a data/{proyecto}/
         self._project_files: dict[str, str] = {}     # clave → ruta absoluta
 
+        # Estado de navegación
+        self._tab: str = TABS[0][0]                  # "usuario" | "hashtag"
+        self._module_id: str = MODULES[0]["id"]      # módulo activo
+        self._action_idx: int = 0                    # acción activa dentro del módulo
+        self._module_buttons: dict[str, ctk.CTkButton] = {}
+        self._action_buttons: list[ctk.CTkButton] = []
+
+        self._restore_state()
         self._build_ui()
+        self._refresh_modules()
+
+    # ------------------------------------------------------------------
+    # Persistencia ligera del estado de navegación (equivalente de escritorio
+    # a "mantener la selección"; sobrevive a reinicios sin dependencias nuevas)
+    # ------------------------------------------------------------------
+    def _state_path(self) -> str:
+        return os.path.join(_project_root(), "data", ".menu_state.json")
+
+    def _restore_state(self):
+        try:
+            with open(self._state_path(), "r", encoding="utf-8") as f:
+                st = json.load(f)
+            if st.get("tab") in {t[0] for t in TABS}:
+                self._tab = st["tab"]
+            if any(m["id"] == st.get("module") for m in MODULES):
+                self._module_id = st["module"]
+        except Exception:
+            pass
+
+    def _save_state(self):
+        try:
+            os.makedirs(os.path.dirname(self._state_path()), exist_ok=True)
+            with open(self._state_path(), "w", encoding="utf-8") as f:
+                json.dump({"tab": self._tab, "module": self._module_id}, f)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     def _build_ui(self):
         self._build_header()
-        self._build_config_row()
+        self._build_footer()          # anclado abajo primero
+        self._build_tabs()
         self._build_project_bar()
-        self._build_grid()
-        self._build_footer()
+        self._build_modules_row()
+        self._build_actions_row()
+        self._build_action_panel()
 
     # ------------------------------------------------------------------
     def _build_header(self):
@@ -202,28 +322,67 @@ class MenuApp(ctk.CTk):
             text_color=self.HEADER_TEXT,
         ).pack(side="left", padx=24, pady=0)
 
-        ctk.CTkLabel(
-            hdr,
-            text="Scraping · Análisis · Visualización",
-            font=ctk.CTkFont(size=12),
-            text_color="#93c5fd",
-        ).pack(side="right", padx=24)
+        # Botones fijos de utilidad (derecha)
+        def _hbtn(text, cmd, tip):
+            b = ctk.CTkButton(
+                hdr, text=text, command=cmd,
+                width=110, height=34,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color="#2b517a", hover_color="#356094",
+                text_color=self.HEADER_TEXT, corner_radius=8,
+            )
+            b.pack(side="right", padx=(0, 8), pady=14)
+            return b
+
+        _hbtn("🗂️ Proyecto",
+              lambda: abrir_carpeta(_project_root(), status_cb=self._status),
+              "Abrir la carpeta raíz del proyecto")
+        _hbtn("📂 Outputs",
+              lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
+                                    status_cb=self._status),
+              "Abrir la carpeta de resultados")
+        # Cookies destacado (paso 0)
+        cookies = ctk.CTkButton(
+            hdr, text="🔑 Cookies",
+            command=lambda: run_script("src/scrapers/1-guardar_sesion.py",
+                                       status_cb=self._status),
+            width=120, height=34,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=self.ACCENT, hover_color="#1d4ed8",
+            text_color="#ffffff", corner_radius=8,
+        )
+        cookies.pack(side="right", padx=(0, 14), pady=14)
 
     # ------------------------------------------------------------------
-    def _build_config_row(self):
+    def _build_tabs(self):
+        """Nivel 1 — selector primario Usuario | Hashtag."""
         row = ctk.CTkFrame(self, fg_color=self.BG)
         row.pack(fill="x", padx=16, pady=(14, 4))
 
-        self._wide_card(
+        self._tab_values = [f"{ico}  {lbl}" for _id, lbl, ico in TABS]
+        self._tab_by_value = {f"{ico}  {lbl}": _id for _id, lbl, ico in TABS}
+        self._value_by_tab = {_id: f"{ico}  {lbl}" for _id, lbl, ico in TABS}
+
+        self._tab_seg = ctk.CTkSegmentedButton(
             row,
-            emoji="🔑",
-            num="0",
-            title="Configuración — Iniciar sesión y guardar cookies",
-            subtitle="Haz esto primero para evitar bloqueos de TikTok",
-            cmd=lambda: run_script("src/scrapers/1-guardar_sesion.py",
-                                   status_cb=self._status),
-            accent=True,
+            values=self._tab_values,
+            command=self._on_tab_change,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40,
+            fg_color="#94a3b8",
+            selected_color=self.HEADER_BG,      # navy — activo
+            selected_hover_color="#2b517a",
+            unselected_color="#64748b",          # slate — inactivo
+            unselected_hover_color="#475569",
+            text_color="#ffffff",                # blanco: legible en ambos estados
         )
+        self._tab_seg.pack(fill="x")
+        self._tab_seg.set(self._value_by_tab[self._tab])
+
+    def _on_tab_change(self, value: str):
+        self._tab = self._tab_by_value.get(value, self._tab)
+        self._save_state()
+        self._refresh_modules()
 
     # ------------------------------------------------------------------
     def _build_project_bar(self):
@@ -276,82 +435,248 @@ class MenuApp(ctk.CTk):
         self._project_detail.pack(anchor="w")
 
     # ------------------------------------------------------------------
-    def _build_grid(self):
-        grid = ctk.CTkFrame(self, fg_color=self.BG)
-        grid.pack(fill="both", expand=True, padx=16, pady=(0, 4))
+    # ------------------------------------------------------------------
+    # Nivel 2 — módulos (fila horizontal con scroll si no caben)
+    # ------------------------------------------------------------------
+    def _build_modules_row(self):
+        outer = ctk.CTkFrame(self, fg_color=self.BG)
+        outer.pack(fill="x", padx=16, pady=(6, 2))
 
-        for col in range(4):
-            grid.columnconfigure(col, weight=1, uniform="col")
-        grid.rowconfigure(0, weight=1)
+        ctk.CTkLabel(
+            outer, text="Módulos",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color=self.SUBTITLE, anchor="w",
+        ).pack(anchor="w", pady=(0, 2))
 
-        # ---- Fase 1 ----
-        col1 = self._column(grid, "📥  Fase 1 — Captura de datos", 0)
-        self._card(col1, "1", "👤", "Scraper de Usuario",
-                   "Perfil @user",
-                   lambda: run_script("src/scrapers/1_tiktok_scraper_user.py",
-                                      status_cb=self._status))
-        self._card(col1, "2", "#️⃣", "Scraper de Hashtag",
-                   "Por palabra / hashtag",
-                   lambda: run_script("src/scrapers/2_tiktok_scraper_hastag_api.py",
-                                      status_cb=self._status))
-        self._card(col1, "3", "💬", "Scraper Comentarios",
-                   "Miles de comentarios (Pro)",
-                   lambda: run_script("src/scrapers/2_tiktok_scraper_comentarios_api.py",
-                                      status_cb=self._status))
-        self._card(col1, "4", "📅", "Edad de Cuentas",
-                   "Antigüedad de comentaristas",
-                   lambda: self._run_for_project(
-                       "src/utils/enriquecer_csv_fechas_creacion.py", "comments"))
+        self._modules_scroll = ctk.CTkScrollableFrame(
+            outer, fg_color=self.SECTION_BG, corner_radius=8,
+            orientation="horizontal", height=58,
+        )
+        self._modules_scroll.pack(fill="x")
 
-        # ---- Fase 2 ----
-        col2 = self._column(grid, "📊  Fase 2 — Análisis", 1)
-        self._card(col2, "5", "📈", "Analítica Publicaciones",
-                   "Vistas y likes",
-                   lambda: self._run_for_project(
-                       "src/analysis/analitica_publicaciones.py", "videos"))
-        self._card(col2, "6", "🗣️", "Analítica Comentarios",
-                   "Nubes de palabras",
-                   lambda: self._run_for_project(
-                       "src/analysis/analitica_comentarios.py", "comments"))
-        self._card(col2, "7", "🤖", "Sentimiento con IA (Comentarios)",
-                   "RoBERTa · Groq · Mistral",
-                   lambda: self._run_for_project(
-                       "src/analysis/analizar_sentimiento.py", "comments"))
-        self._card(col2, "8", "🧠", "Gráficas Multidimensionales de Comentarios",
-                   "Sesgo · Arquetipo · Intención · Pain points",
-                   lambda: self._run_for_project(
-                       "src/visualization/grafica_multidimensional.py", "sentiment"))
-        self._card(col2, "9", "🕵️", "Patrones de Cuentas / Bots",
-                   "Antigüedad · actividad · perfiles vacíos",
-                   lambda: self._run_for_project(
-                       "src/visualization/graficas_patrones_cuentas.py", "enriched"))
+        self._module_buttons = {}
+        for mod in MODULES:
+            has_multi = len(self._module_actions(mod)) > 1
+            caret = "  ▾" if has_multi else ""
+            btn = ctk.CTkButton(
+                self._modules_scroll,
+                text=f"{mod['icon']}  {mod['label']}{caret}",
+                command=lambda mid=mod["id"]: self._select_module(mid),
+                width=150, height=40,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                fg_color=self.CARD_BG, hover_color=self.CARD_HOVER,
+                text_color=self.TEXT, corner_radius=8,
+                border_width=1, border_color=self.CARD_BORDER,
+            )
+            btn.pack(side="left", padx=4, pady=8)
+            self._module_buttons[mod["id"]] = btn
 
-        # ---- Fase 3 ----
-        col3 = self._column(grid, "🌐  Fase 3 — Visualización", 2)
-        self._card(col3, "10", "📄", "Informe HTML",
-                   "Genera + abre informe del proyecto",
-                   lambda: generar_informe(
-                       status_cb=self._status,
-                       csv_videos_preset=self._resolve("videos")))
-        self._card(col3, "11", "🕸️", "Grafo de Redes",
-                   "GEXF para Gephi",
-                   lambda: self._run_for_project(
-                       "src/visualization/crear_gexf.py", "comments"))
+    # ------------------------------------------------------------------
+    # Nivel 3 — acciones del módulo activo (solo si hay más de una)
+    # ------------------------------------------------------------------
+    def _build_actions_row(self):
+        # height=1 + pack_propagate: colapsa cuando no hay acciones (módulo de una
+        # sola acción) y crece automáticamente al añadir botones de nivel 3.
+        self._actions_frame = ctk.CTkFrame(self, fg_color=self.BG, height=1)
+        self._actions_frame.pack(fill="x", padx=16, pady=(4, 2))
+        # Su contenido se reconstruye en _refresh_actions().
 
-        # ---- Otros ----
-        col4 = self._column(grid, "📁  Otros", 3)
-        self._card(col4, "12", "📂", "Carpeta Outputs",
-                   "Ver resultados generados",
-                   lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
-                                         status_cb=self._status))
-        self._card(col4, "13", "🗂️", "Carpeta Proyecto",
-                   "Raíz del proyecto",
-                   lambda: abrir_carpeta(_project_root(), status_cb=self._status))
+    # ------------------------------------------------------------------
+    # Panel central — breadcrumb + descripción + estado + Ejecutar
+    # ------------------------------------------------------------------
+    def _build_action_panel(self):
+        panel = ctk.CTkFrame(self, fg_color=self.CARD_BG, corner_radius=12,
+                             border_width=1, border_color=self.CARD_BORDER)
+        panel.pack(fill="both", expand=True, padx=16, pady=(6, 4))
+
+        self._breadcrumb = ctk.CTkLabel(
+            panel, text="",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=self.ACCENT, anchor="w",
+        )
+        self._breadcrumb.pack(anchor="w", padx=20, pady=(16, 2))
+
+        self._panel_title = ctk.CTkLabel(
+            panel, text="",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=self.TEXT, anchor="w",
+        )
+        self._panel_title.pack(anchor="w", padx=20, pady=(2, 2))
+
+        self._panel_help = ctk.CTkLabel(
+            panel, text="",
+            font=ctk.CTkFont(size=12),
+            text_color=self.SUBTITLE, anchor="w",
+            justify="left", wraplength=820,
+        )
+        self._panel_help.pack(anchor="w", padx=20, pady=(0, 10))
+
+        self._panel_file = ctk.CTkLabel(
+            panel, text="",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w", justify="left", wraplength=820,
+        )
+        self._panel_file.pack(anchor="w", padx=20, pady=(0, 12))
+
+        self._run_btn = ctk.CTkButton(
+            panel, text="▶  Ejecutar",
+            command=self._run_current_action,
+            width=200, height=46,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            fg_color=self.ACCENT, hover_color="#1d4ed8",
+            corner_radius=10,
+        )
+        self._run_btn.pack(anchor="w", padx=20, pady=(0, 18))
+
+    # ------------------------------------------------------------------
+    # Lógica de navegación
+    # ------------------------------------------------------------------
+    def _module_by_id(self, mid: str) -> dict:
+        return next(m for m in MODULES if m["id"] == mid)
+
+    def _module_actions(self, mod: dict) -> list[dict]:
+        """Acciones de un módulo, resolviendo per_tab según la pestaña activa."""
+        if "per_tab" in mod:
+            return [mod["per_tab"][self._tab]]
+        return mod["actions"]
+
+    def _current_module(self) -> dict:
+        return self._module_by_id(self._module_id)
+
+    def _current_action(self) -> dict:
+        actions = self._module_actions(self._current_module())
+        idx = min(self._action_idx, len(actions) - 1)
+        return actions[idx]
+
+    def _refresh_modules(self):
+        """Resalta el módulo activo y refresca acciones del que cambia con la pestaña."""
+        for mid, btn in self._module_buttons.items():
+            mod = self._module_by_id(mid)
+            active = (mid == self._module_id)
+            # El módulo "captura" cambia de etiqueta según la pestaña
+            if "per_tab" in mod:
+                act = mod["per_tab"][self._tab]
+                btn.configure(text=f"{mod['icon']}  {mod['label']}")
+            btn.configure(
+                fg_color=self.HEADER_BG if active else self.CARD_BG,
+                text_color="#ffffff" if active else self.TEXT,
+                border_color=self.ACCENT if active else self.CARD_BORDER,
+            )
+        self._refresh_actions()
+
+    def _select_module(self, mid: str):
+        self._module_id = mid
+        self._action_idx = 0
+        self._save_state()
+        self._refresh_modules()
+
+    def _refresh_actions(self):
+        """Reconstruye la fila de nivel 3 según el módulo activo."""
+        for w in self._actions_frame.winfo_children():
+            w.destroy()
+        self._action_buttons = []
+
+        actions = self._module_actions(self._current_module())
+        if len(actions) > 1:
+            ctk.CTkLabel(
+                self._actions_frame, text="Acciones",
+                font=ctk.CTkFont(size=10, weight="bold"),
+                text_color=self.SUBTITLE,
+            ).pack(side="left", padx=(0, 8))
+            for idx, act in enumerate(actions):
+                active = (idx == min(self._action_idx, len(actions) - 1))
+                b = ctk.CTkButton(
+                    self._actions_frame,
+                    text=f"{act['icon']}  {act['label']}",
+                    command=lambda i=idx: self._select_action(i),
+                    width=170, height=34,
+                    font=ctk.CTkFont(size=12,
+                                     weight="bold" if active else "normal"),
+                    fg_color=self.ACCENT if active else self.CARD_BG,
+                    hover_color="#1d4ed8" if active else self.CARD_HOVER,
+                    text_color="#ffffff" if active else self.TEXT,
+                    border_width=0 if active else 1,
+                    border_color=self.CARD_BORDER, corner_radius=8,
+                )
+                b.pack(side="left", padx=4)
+                self._action_buttons.append(b)
+        self._refresh_panel()
+
+    def _select_action(self, idx: int):
+        self._action_idx = idx
+        self._refresh_actions()
+
+    def _refresh_panel(self):
+        """Actualiza breadcrumb, descripción, estado del CSV y botón Ejecutar."""
+        mod = self._current_module()
+        act = self._current_action()
+        tab_label = dict((t[0], t[1]) for t in TABS)[self._tab]
+
+        crumb = f"{tab_label}  ›  {mod['label']}"
+        if len(self._module_actions(mod)) > 1:
+            crumb += f"  ›  {act['label']}"
+        self._breadcrumb.configure(text=crumb)
+        self._panel_title.configure(text=f"{act['icon']}  {act['label']}")
+        self._panel_help.configure(text=act.get("help", ""))
+
+        # Estado del archivo requerido
+        file_key = act.get("file_key")
+        ready = True
+        if file_key:
+            path = self._resolve(file_key)
+            if path:
+                self._panel_file.configure(
+                    text=f"✓ Archivo listo: {os.path.basename(path)}",
+                    text_color=self.OK_COLOR,
+                )
+            elif self._active_project:
+                ready = False
+                self._panel_file.configure(
+                    text=f"⚠ Falta el archivo requerido — {self._file_hint(file_key)}",
+                    text_color=self.WARN_COLOR,
+                )
+            else:
+                self._panel_file.configure(
+                    text="ℹ Sin proyecto activo: el script abrirá su propio selector de archivo.",
+                    text_color=self.SUBTITLE,
+                )
+        else:
+            self._panel_file.configure(
+                text="ℹ Esta acción no necesita un proyecto seleccionado.",
+                text_color=self.SUBTITLE,
+            )
+
+        self._run_btn.configure(
+            state="normal" if ready else "disabled",
+            fg_color=self.ACCENT if ready else "#cbd5e1",
+        )
+
+    @staticmethod
+    def _file_hint(file_key: str) -> str:
+        return {
+            "videos":    "ejecuta primero la Captura (perfil o hashtag).",
+            "comments":  "ejecuta primero «Comentarios → Extraer comentarios».",
+            "sentiment": "ejecuta primero «Sentimiento IA → Analizar sentimiento».",
+            "enriched":  "ejecuta primero «Edad de cuentas → Calcular edades».",
+        }.get(file_key, "ejecuta el paso previo del flujo.")
+
+    def _run_current_action(self):
+        self._run_action(self._current_action())
+
+    def _run_action(self, act: dict):
+        if act.get("run") == "informe":
+            generar_informe(status_cb=self._status,
+                            csv_videos_preset=self._resolve("videos"))
+            return
+        if act.get("file_key"):
+            self._run_for_project(act["script"], act["file_key"])
+        else:
+            run_script(act["script"], status_cb=self._status)
 
     # ------------------------------------------------------------------
     def _build_footer(self):
         foot = ctk.CTkFrame(self, fg_color=self.BG)
-        foot.pack(fill="x", padx=16, pady=(4, 12))
+        foot.pack(side="bottom", fill="x", padx=16, pady=(4, 12))
 
         self._status_var = ctk.StringVar(value="Listo. Selecciona un proyecto y una opción.")
         ctk.CTkLabel(
@@ -426,6 +751,9 @@ class MenuApp(ctk.CTk):
         detail = "  ·  ".join(icons) if icons else "sin archivos reconocidos"
         self._project_detail.configure(text=detail)
         self._status(f"📁 Proyecto activo: {name}  ({len(self._project_files)} archivos)")
+        # Refrescar el panel para actualizar el estado del archivo requerido
+        if hasattr(self, "_run_btn"):
+            self._refresh_panel()
 
     def _select_project(self):
         """Muestra diálogo para elegir proyecto de data/ o carpeta manual."""
@@ -570,112 +898,6 @@ class MenuApp(ctk.CTk):
     # ------------------------------------------------------------------
     # Helpers de construcción de UI
     # ------------------------------------------------------------------
-
-    def _column(self, parent, title: str, col_idx: int) -> ctk.CTkFrame:
-        frame = ctk.CTkFrame(parent, fg_color=self.BG, corner_radius=0)
-        frame.grid(row=0, column=col_idx, sticky="nsew",
-                   padx=(0 if col_idx == 0 else 6, 0))
-
-        hdr = ctk.CTkFrame(frame, fg_color=self.SECTION_BG, corner_radius=8, height=34)
-        hdr.pack(fill="x", pady=(0, 6))
-        hdr.pack_propagate(False)
-        ctk.CTkLabel(
-            hdr, text=title,
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=self.SECTION_TXT, anchor="w",
-        ).pack(padx=10, pady=0, fill="both", expand=True)
-
-        return frame
-
-    def _bind_card(self, widget, cmd, outer):
-        widget.bind("<Button-1>", lambda _e, c=cmd: c())
-        widget.bind("<Enter>",    lambda _e, f=outer: f.configure(fg_color=self.CARD_HOVER))
-        widget.bind("<Leave>",    lambda _e, f=outer: f.configure(fg_color=self.CARD_BG))
-        for child in widget.winfo_children():
-            self._bind_card(child, cmd, outer)
-
-    def _card(self, parent, num: str, emoji: str, title: str,
-              subtitle: str, cmd):
-        outer = ctk.CTkFrame(parent, fg_color=self.CARD_BG, corner_radius=8,
-                             border_width=1, border_color=self.CARD_BORDER)
-        outer.pack(fill="x", pady=3)
-
-        ctk.CTkLabel(
-            outer, text=emoji,
-            font=ctk.CTkFont(size=18), width=32,
-        ).pack(side="left", padx=(10, 4), pady=10)
-
-        txt = ctk.CTkFrame(outer, fg_color="transparent")
-        txt.pack(side="left", fill="x", expand=True, pady=8)
-
-        ctk.CTkLabel(
-            txt,
-            text=f"{num}. {title}",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.TEXT, anchor="w",
-            justify="left", wraplength=150,
-        ).pack(anchor="w", fill="x")
-
-        ctk.CTkLabel(
-            txt, text=subtitle,
-            font=ctk.CTkFont(size=10),
-            text_color=self.SUBTITLE, anchor="w",
-            justify="left", wraplength=150,
-        ).pack(anchor="w", fill="x")
-
-        ctk.CTkLabel(
-            outer, text="›",
-            font=ctk.CTkFont(size=16),
-            text_color=self.SUBTITLE, width=20,
-        ).pack(side="right", padx=8)
-
-        self._bind_card(outer, cmd, outer)
-
-    def _wide_card(self, parent, emoji: str, num: str, title: str,
-                   subtitle: str, cmd, accent: bool = False):
-        bg     = "#1e3a5f" if accent else self.CARD_BG
-        bg_hov = "#2563eb" if accent else self.CARD_HOVER
-        fg     = "#ffffff" if accent else self.TEXT
-        fg_sub = "#93c5fd" if accent else self.SUBTITLE
-
-        outer = ctk.CTkFrame(parent, fg_color=bg, corner_radius=10,
-                             border_width=0, height=62)
-        outer.pack(fill="x")
-        outer.pack_propagate(False)
-
-        ctk.CTkLabel(
-            outer, text=emoji,
-            font=ctk.CTkFont(size=24), width=40,
-        ).pack(side="left", padx=(16, 8))
-
-        txt = ctk.CTkFrame(outer, fg_color="transparent")
-        txt.pack(side="left", fill="x", expand=True)
-
-        ctk.CTkLabel(
-            txt, text=f"{num}. {title}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=fg, anchor="w",
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            txt, text=subtitle,
-            font=ctk.CTkFont(size=11),
-            text_color=fg_sub, anchor="w",
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            outer, text="›",
-            font=ctk.CTkFont(size=20),
-            text_color=fg_sub, width=28,
-        ).pack(side="right", padx=16)
-
-        def _bind_wide(widget):
-            widget.bind("<Button-1>", lambda _e, c=cmd: c())
-            widget.bind("<Enter>",    lambda _e, f=outer, h=bg_hov: f.configure(fg_color=h))
-            widget.bind("<Leave>",    lambda _e, f=outer, b=bg:     f.configure(fg_color=b))
-            for child in widget.winfo_children():
-                _bind_wide(child)
-        _bind_wide(outer)
 
     def _status(self, msg: str):
         self.after(0, self._status_var.set, msg)
