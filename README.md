@@ -182,13 +182,22 @@ Ejecuta el menú gráfico:
 python menu.py
 ```
 
-Se abrirá una ventana con todos los módulos. El orden recomendado es:
+Se abrirá una ventana con navegación horizontal multinivel:
+- **Nivel 1 (arriba)**: Pestañas `👤 Usuario` | `# Hashtag` — elige tu punto de entrada
+- **Nivel 2**: 8 módulos en fila horizontal (Captura, Comentarios, Edad, Grafo, Sentimiento, Gráficas, Publicaciones, Informe)
+- **Nivel 3** (contextual): Acciones del módulo seleccionado (si tiene varias)
+- **Panel central**: Descripción, estado del archivo requerido, botón ▶ Ejecutar
 
-1. **Configuración (botón 0)** — Inicia sesión en TikTok. Se abrirá Chrome, inicia sesión manualmente y pulsa Enter en el terminal.
-2. **Scraper de Usuario (botón 1)** — Escribe el nombre de una cuenta (sin @) y extrae todos sus vídeos.
-3. **Analítica Publicaciones (botón 4)** — Genera las gráficas de rendimiento.
-4. **Sentimiento con IA (botón 6)** — Clasifica los comentarios.
-5. **Informe HTML (botón 8)** — Genera el informe final y lo abre en el navegador.
+Flujo recomendado:
+1. **🔑 Cookies** (botón de cabecera) — Inicia sesión en TikTok (solo la primera vez)
+2. **Captura** → `Extraer perfil` o `Buscar hashtag` — Descarga vídeos
+3. **Comentarios** → `Extraer comentarios` — Obtén comentarios de los vídeos
+4. **Edad de cuentas** → `Calcular edades` — Enriquece con datos de creación de cuentas
+5. **Sentimiento** → `Analizar sentimiento` — Clasifica comentarios con IA
+6. **Gráficas multidimensionales** — Genera visualizaciones avanzadas
+7. **Informe HTML** → Crea el informe final y abrelo en el navegador
+
+Todos los módulos usan el proyecto seleccionado en la barra `Proyecto activo:` (arriba a la izquierda). El estado del CSV requerido se muestra claramente — si falta, indica qué paso ejecutar primero.
 
 ### Opción B — Terminal
 
@@ -218,7 +227,7 @@ Los resultados se guardan en `outputs/nombre_cuenta/`.
 ```
 tiktok-scraper/
 │
-├── menu.py                          ← Menú gráfico principal (empieza aquí)
+├── menu.py                          ← Menú gráfico principal (interfaz horizontal multinivel)
 ├── requirements.txt                 ← Lista de librerías a instalar
 │
 ├── config/
