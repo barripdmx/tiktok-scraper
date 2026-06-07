@@ -87,11 +87,28 @@ def merge_lookup_into_source(
     ]
     lookup_merge = lookup_df[merge_cols].copy()
 
+    # Renombrar columnas del lookup que colisionan con columnas ya existentes
+    # en el CSV fuente, para evitar que pandas las renombre a _x / _y.
+    # - "likes" en el lookup = likes totales de la cuenta (≠ likes del comentario)
+    # - "user_id" puede existir en algunos CSVs de comentarios
+    collision_renames = {}
+    for col in ["likes", "user_id"]:
+        if col in lookup_merge.columns and col in df.columns:
+            collision_renames[col] = f"{col}_cuenta"
+    if collision_renames:
+        lookup_merge = lookup_merge.rename(columns=collision_renames)
+
+    # Garantizar un único registro por handle antes del merge (evita duplicar
+    # filas del source si el lookup tuviera entradas repetidas).
+    key_col = "username_consulta"
+    lookup_merge = lookup_merge.drop_duplicates(subset=[key_col], keep="last")
+
     out = df.merge(
         lookup_merge,
         left_on="_handle_norm_tmp",
-        right_on="username_consulta",
+        right_on=key_col,
         how="left",
+        sort=False,   # preserva el orden original del CSV fuente
     )
     out = out.drop(columns=["_handle_norm_tmp"])
     out.to_csv(enriched_csv, index=False, encoding="utf-8-sig")
