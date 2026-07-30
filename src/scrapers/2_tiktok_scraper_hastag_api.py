@@ -54,6 +54,8 @@ from tiktok_utils import (
     ensure_context as _ensure_context_base,
     collect_video_urls as _collect_video_urls_base,
     save_cookies,
+    resolve_cookies_path,
+    ask_or_arg,
 )
 
 # ------------------- CONFIG -------------------
@@ -65,7 +67,7 @@ import sys as _sys
 _sys.path.insert(0, BASE_DIR)
 from config.rutas import dataset_dir
 
-COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
+COOKIES_PATH = resolve_cookies_path(BASE_DIR)  # SEC-01: secrets/, no data/
 PROFILE_DIR = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 
 HEADLESS = False
@@ -601,17 +603,18 @@ async def main():
     print("Pagina la API directamente (sin scroll DOM)")
     print("=" * 60)
 
-    query_raw = input("\n🔍 Término(s) exactos (sin #, separados por coma): ").strip()
+    query_raw = ask_or_arg("--query", "\n🔍 Término(s) exactos (sin #, separados por coma): ")
     try:
         terms = next(csv.reader([query_raw], skipinitialspace=True))
         terms = [t.strip() for t in terms if t and t.strip()]
     except Exception:
         terms = [t.strip() for t in query_raw.split(",") if t.strip()]
     if not terms:
+        print("❌ Debes introducir al menos un término de búsqueda")
         return
 
-    start_str = input("📅 Fecha inicio (dd-mm-aaaa) o Enter: ").strip()
-    end_str   = input("📅 Fecha fin (dd-mm-aaaa) o Enter: ").strip()
+    start_str = ask_or_arg("--desde", "📅 Fecha inicio (dd-mm-aaaa) o Enter: ")
+    end_str   = ask_or_arg("--hasta", "📅 Fecha fin (dd-mm-aaaa) o Enter: ")
 
     def parse_date(s):
         try:

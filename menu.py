@@ -1,915 +1,1264 @@
 # -*- coding: utf-8 -*-
 """
-Menú principal — CustomTkinter, modo claro, navegación horizontal multinivel.
+TikTok OSINT & Analytics Toolkit — consola de control.
 
-Niveles de navegación:
-  Nivel 1  Pestaña principal   👤 Usuario | #️⃣ Hashtag  (segmented button)
-  Nivel 2  Módulos compartidos del flujo (solo "Captura" cambia según pestaña)
-  Nivel 3  Acciones del módulo activo (solo si tiene más de una)
-  Panel    Descripción + estado del CSV requerido + botón ▶ Ejecutar
+Rediseño UX (v3). Cambios frente a la versión de navegación horizontal:
 
-La estructura se define en la constante declarativa MODULES; la UI y el
-dispatch se generan a partir de ella. Para añadir una opción nueva basta con
-agregar un dict a MODULES (o una acción a su lista "actions").
+  · Navegación de 3 niveles (pestaña › módulo › acción) sustituida por una
+    barra lateral única agrupada por fases del flujo. Toda acción está a un
+    solo clic; desaparece el scroll horizontal oculto y el salto de layout
+    que provocaba la fila de nivel 3 al aparecer/desaparecer.
+  · Cada paso muestra su estado real derivado de los archivos del proyecto:
+    ✓ hecho · ● listo para ejecutar · ○ bloqueado por un paso previo.
+  · Los archivos del proyecto se reescanean al terminar cada proceso, así el
+    estado deja de quedarse obsoleto (antes había que reseleccionar proyecto).
+  · Seguimiento del proceso hijo por sondeo en el hilo de UI (sin hilos ni
+    callbacks cruzados), con cronómetro, botón Detener y registro de actividad.
+  · Un único root Tk: los diálogos cuelgan de la ventana principal.
+  · Tema claro/oscuro nativo mediante colores en tupla (claro, oscuro).
+
+Nota de diseño: los scripts se lanzan en su propia ventana de consola porque
+varios son interactivos (piden proveedor de IA, nº de vídeos, rutas…). Por eso
+el panel "Actividad" registra eventos de ejecución, no la salida estándar:
+capturarla con una tubería bloquearía esos prompts.
+
+La navegación se genera a partir de GROUPS/ACTIONS; para añadir una opción
+basta con declarar un dict nuevo.
 """
 
 import os
 import sys
 import json
-import threading
+import time
 import subprocess
+from datetime import datetime
+
 import customtkinter as ctk
 
 # ---------------------------------------------------------------------------
-# Configuración declarativa de la navegación
+# Paleta — cada color es (claro, oscuro); CustomTkinter conmuta solo.
 # ---------------------------------------------------------------------------
 
-def A(label, icon, *, script=None, file_key=None, run=None, help=""):
-    """Crea la definición de una acción ejecutable."""
-    return {"label": label, "icon": icon, "script": script,
-            "file_key": file_key, "run": run, "help": help}
+BG          = ("#eef2f7", "#0f141b")
+SURFACE     = ("#ffffff", "#171e28")
+SURFACE_ALT = ("#e4ebf3", "#1e2733")
+BORDER      = ("#d3dce7", "#2b3644")
+HEADER      = ("#14293f", "#111823")
+ON_HEADER   = ("#ffffff", "#e6edf5")
+TEXT        = ("#0f172a", "#e6edf5")
+MUTED       = ("#64748b", "#8b9bb0")
+ACCENT      = ("#2563eb", "#3b82f6")
+ACCENT_HOV  = ("#1d4ed8", "#2563eb")
+ACCENT_SOFT = ("#dbeafe", "#1c2f4a")
+OK          = ("#059669", "#34d399")
+WARN        = ("#c2410c", "#fb923c")
+DANGER      = ("#dc2626", "#f87171")
+DANGER_SOFT = ("#fee2e2", "#3b1d1d")
+DISABLED    = ("#cbd5e1", "#334155")
+
+FONT_FAMILY = "Segoe UI" if sys.platform == "win32" else None
 
 
-# Pestañas de primer nivel (solo cambian la acción de captura)
-TABS = [
-    ("usuario", "Usuario", "👤"),
-    ("hashtag", "Hashtag", "#"),
-]
-
-# Módulos del flujo compartido. El módulo "captura" define una acción distinta
-# por pestaña (per_tab); el resto son idénticos para Usuario y Hashtag.
-MODULES = [
-    {"id": "captura", "label": "Captura", "icon": "📥", "per_tab": {
-        "usuario": A("Extraer perfil", "👤",
-                     script="src/scrapers/1_tiktok_scraper_user.py",
-                     help="Extrae todos los vídeos de un perfil @usuario."),
-        "hashtag": A("Buscar hashtag", "#",
-                     script="src/scrapers/2_tiktok_scraper_hastag_api.py",
-                     help="Busca y extrae vídeos por hashtag o palabra clave."),
-    }},
-    {"id": "comentarios", "label": "Comentarios", "icon": "💬", "actions": [
-        A("Extraer comentarios", "💬",
-          script="src/scrapers/2_tiktok_scraper_comentarios_api.py",
-          help="Descarga miles de comentarios de las publicaciones (API Pro)."),
-        A("Analítica (nubes)", "🗣️",
-          script="src/analysis/analitica_comentarios.py", file_key="comments",
-          help="Nubes de palabras y métricas sobre los comentarios."),
-    ]},
-    {"id": "edad", "label": "Edad de cuentas", "icon": "📅", "actions": [
-        A("Calcular edades", "📅",
-          script="src/utils/enriquecer_csv_fechas_creacion.py", file_key="comments",
-          help="Enriquece los comentaristas con la fecha de creación de su cuenta."),
-        A("Gráficas de patrones", "🕵️",
-          script="src/visualization/graficas_patrones_cuentas.py", file_key="enriched",
-          help="Detecta patrones de bots: antigüedad, actividad, perfiles vacíos."),
-    ]},
-    {"id": "grafo", "label": "Grafo de redes", "icon": "🕸️", "actions": [
-        A("Generar GEXF", "🕸️",
-          script="src/visualization/crear_gexf.py", file_key="comments",
-          help="Crea un grafo de relaciones (GEXF) para abrir en Gephi."),
-    ]},
-    {"id": "sentimiento", "label": "Sentimiento IA", "icon": "🤖", "actions": [
-        A("Analizar sentimiento", "🤖",
-          script="src/analysis/analizar_sentimiento.py", file_key="comments",
-          help="Clasifica el sentimiento de los comentarios (RoBERTa·Groq·Mistral)."),
-        A("Gráficas multidim.", "🧠",
-          script="src/visualization/grafica_multidimensional.py", file_key="sentiment",
-          help="Sesgo · arquetipo · intención · pain points."),
-    ]},
-    {"id": "multidim", "label": "Gráficas multidim.", "icon": "🧠", "actions": [
-        A("Generar gráficas", "🧠",
-          script="src/visualization/grafica_multidimensional.py", file_key="sentiment",
-          help="Genera el set completo de gráficas multidimensionales."),
-    ]},
-    {"id": "publicaciones", "label": "Publicaciones", "icon": "📈", "actions": [
-        A("Vistas y likes", "📈",
-          script="src/analysis/analitica_publicaciones.py", file_key="videos",
-          help="Analítica de rendimiento de las publicaciones: vistas y likes."),
-    ]},
-    {"id": "informe", "label": "Informe HTML", "icon": "📄", "actions": [
-        A("Generar y abrir", "📄", run="informe", file_key="videos",
-          help="Genera el informe HTML del proyecto y lo abre en el navegador."),
-    ]},
-]
+def _f(size=12, weight="normal"):
+    """CTkFont con la familia del sistema. Tk exige un tamaño entero."""
+    size = int(round(size))
+    if FONT_FAMILY:
+        return ctk.CTkFont(family=FONT_FAMILY, size=size, weight=weight)
+    return ctk.CTkFont(size=size, weight=weight)
 
 
 # ---------------------------------------------------------------------------
-# Lógica de negocio
+# Modelo declarativo del flujo
+#
+#   requires  claves de archivo que el paso necesita como entrada
+#   produces  clave de archivo que el paso genera (sirve para marcarlo ✓)
+#   arg_key   clave cuyo path se pasa como argv[1] al script
+#   inputs    campos que el menú pide y pasa al script como flags
+# ---------------------------------------------------------------------------
+
+def F(flag, label, placeholder, *, required=False, kind="text", hint=""):
+    """Campo de entrada del panel; su valor viaja al script como `flag valor`."""
+    return {"flag": flag, "label": label, "placeholder": placeholder,
+            "required": required, "kind": kind, "hint": hint}
+
+GROUPS = [
+    ("setup",   "Configuración"),
+    ("captura", "1 · Captura"),
+    ("analisis", "2 · Análisis"),
+    ("osint",   "3 · Investigación"),
+    ("salida",  "4 · Resultados"),
+]
+
+ACTIONS = [
+    dict(
+        id="cookies", group="setup", icon="🔑", label="Sesión de TikTok",
+        script="src/scrapers/1-guardar_sesion.py",
+        requires=[], produces=None, arg_key=None,
+        help="Abre un navegador para que inicies sesión en TikTok y guarda las "
+             "cookies en secrets/. Es el paso 0: sin sesión válida los scrapers "
+             "obtienen resultados incompletos o vacíos.",
+    ),
+
+    dict(
+        id="perfil", group="captura", icon="👤", label="Perfil de usuario",
+        script="src/scrapers/1_tiktok_scraper_user.py",
+        requires=[], produces="videos", arg_key=None,
+        help="Extrae todos los vídeos publicados por una cuenta de TikTok.",
+        inputs=[
+            F("--user", "Cuenta de TikTok", "sanchezcastejon", required=True,
+              hint="Sin la @. Solo el nombre de usuario del perfil."),
+            F("--desde", "Publicados desde", "dd-mm-aaaa", kind="date"),
+            F("--hasta", "Publicados hasta", "dd-mm-aaaa", kind="date"),
+        ],
+    ),
+    dict(
+        id="hashtag", group="captura", icon="#", label="Hashtag o búsqueda",
+        script="src/scrapers/2_tiktok_scraper_hastag_api.py",
+        requires=[], produces="videos", arg_key=None,
+        help="Busca y extrae vídeos por hashtag o palabra clave mediante la API.",
+        inputs=[
+            F("--query", "Términos de búsqueda", "therians, otherkin", required=True,
+              hint="Sin #. Varios términos separados por coma; coincidencia literal exacta."),
+            F("--desde", "Publicados desde", "dd-mm-aaaa", kind="date"),
+            F("--hasta", "Publicados hasta", "dd-mm-aaaa", kind="date"),
+        ],
+    ),
+    dict(
+        id="comentarios", group="captura", icon="💬", label="Comentarios",
+        script="src/scrapers/2_tiktok_scraper_comentarios_api.py",
+        requires=["videos"], produces="comments", arg_key="videos",
+        help="Descarga los comentarios de cada vídeo capturado. Es el paso más "
+             "lento del flujo: puede tardar horas en proyectos grandes.",
+    ),
+
+    dict(
+        id="publicaciones", group="analisis", icon="📈", label="Publicaciones",
+        script="src/analysis/analitica_publicaciones.py",
+        requires=["videos"], produces=None, arg_key="videos",
+        help="Analítica de rendimiento de las publicaciones: vistas, likes, "
+             "evolución temporal y vídeos destacados.",
+    ),
+    dict(
+        id="nubes", group="analisis", icon="🗣️", label="Comentarios (nubes)",
+        script="src/analysis/analitica_comentarios.py",
+        requires=["comments"], produces=None, arg_key="comments",
+        help="Nubes de palabras, términos frecuentes y métricas descriptivas "
+             "sobre el corpus de comentarios.",
+    ),
+    dict(
+        id="sentimiento", group="analisis", icon="🤖", label="Sentimiento IA",
+        script="src/analysis/analizar_sentimiento.py",
+        requires=["comments"], produces="sentiment", arg_key="comments",
+        help="Clasifica cada comentario con IA. El script te dejará elegir el "
+             "proveedor: RoBERTa (local), Groq o Mistral. Groq y Mistral añaden "
+             "sesgo, arquetipo, intención y pain points; RoBERTa solo sentimiento.",
+    ),
+
+    dict(
+        id="edad", group="osint", icon="📅", label="Edad de las cuentas",
+        script="src/utils/enriquecer_csv_fechas_creacion.py",
+        requires=["comments"], produces="enriched", arg_key="comments",
+        help="Enriquece a cada comentarista con la fecha de creación de su "
+             "cuenta. Base para la detección de cuentas sospechosas.",
+    ),
+    dict(
+        id="patrones", group="osint", icon="🕵️", label="Patrones de cuentas",
+        script="src/visualization/graficas_patrones_cuentas.py",
+        requires=["enriched"], produces=None, arg_key="enriched",
+        help="Detecta indicios de automatización: antigüedad anómala, ráfagas "
+             "de creación, perfiles vacíos y actividad concentrada.",
+    ),
+    dict(
+        id="grafo", group="osint", icon="🕸️", label="Grafo de redes (GEXF)",
+        script="src/visualization/crear_gexf.py",
+        requires=["comments"], produces=None, arg_key="comments",
+        help="Genera un grafo de interacciones en formato GEXF, listo para "
+             "abrir y analizar en Gephi.",
+    ),
+
+    dict(
+        id="multidim", group="salida", icon="🧠", label="Gráficas multidimensión",
+        script="src/visualization/grafica_multidimensional.py",
+        requires=["sentiment"], produces=None, arg_key="sentiment",
+        help="Set completo de gráficas sobre las dimensiones del análisis con "
+             "IA: sesgo, arquetipo, intención y pain points.",
+    ),
+    dict(
+        id="informe", group="salida", icon="📄", label="Informe HTML",
+        script="src/visualization/generar_informe_html.py",
+        requires=["videos"], produces=None, arg_key="videos", opens_report=True,
+        help="Compila todos los resultados disponibles en un informe HTML "
+             "autocontenido y lo abre en el navegador.",
+    ),
+]
+
+# Etiquetas legibles de cada tipo de archivo, y qué paso lo genera.
+FILE_LABELS = {
+    "videos":    ("CSV de vídeos", "Perfil de usuario» o «Hashtag o búsqueda"),
+    "comments":  ("CSV de comentarios", "Comentarios"),
+    "sentiment": ("CSV con sentimiento", "Sentimiento IA"),
+    "enriched":  ("CSV con edad de cuentas", "Edad de las cuentas"),
+}
+
+# Chips que resumen el estado del proyecto en la barra superior.
+PROJECT_CHIPS = [
+    ("videos",    "📹", "vídeos"),
+    ("comments",  "💬", "comentarios"),
+    ("sentiment", "🤖", "sentimiento"),
+    ("enriched",  "📅", "edad cuentas"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Utilidades de dominio
 # ---------------------------------------------------------------------------
 
 def _project_root() -> str:
     return os.path.abspath(os.path.dirname(__file__))
 
 
-def run_script(path: str, extra_args: list | None = None, status_cb=None):
-    script_path = os.path.abspath(os.path.join(_project_root(), path))
-    if not os.path.exists(script_path):
-        if status_cb:
-            status_cb(f"❌ Archivo no encontrado: {script_path}")
-        return
+# Archivos auxiliares que nunca son la salida de un paso.
+IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint")
 
-    def _run():
-        if status_cb:
-            status_cb(f"🚀 Ejecutando: {os.path.basename(script_path)}…")
+# Nombres que delatan una prueba o un descarte: se aceptan, pero pierden
+# frente a cualquier archivo equivalente que no los lleve.
+JUNK_MARKERS = ("prueba", "_test", "debug", "_old", "_lite", "backup", "_bak")
+
+# Patrones por tipo, de más específico (formato actual) a más laxo (histórico).
+# Un proyecto antiguo usa «_videos.csv» / «_comments.csv»; el actual, «_api».
+COMMENT_PATTERNS = (("comentarios_api", 3), ("comentarios", 2), ("comments", 1))
+VIDEO_PATTERNS = (("videos_api", 3), ("videos", 1))
+
+# Riqueza del CSV de sentimiento por proveedor: mistral/groq/gemini rellenan
+# todas las dimensiones (sesgo, arquetipo…); roberta solo 'sentiment'.
+SENTIMENT_PROVIDERS = (("mistral", 4), ("gemini", 3), ("groq", 2), ("roberta", 1))
+
+
+def _match_score(name: str, patterns) -> int:
+    """Mejor puntuación de los patrones que aparecen en el nombre; 0 si ninguno."""
+    return max((score for pat, score in patterns if pat in name), default=0)
+
+
+def scan_project_files(folder: str) -> dict[str, str]:
+    """Clasifica los CSV de un proyecto por tipo de salida del flujo.
+
+    Cada archivo se asigna a la categoría más específica que encaja, en este
+    orden (evita falsos positivos: «sanchez_videos_comments.csv» contiene
+    «videos» pero es un CSV de comentarios):
+
+        enriched  → *enriquecido_fechas_creacion*
+        sentiment → *con_sentimiento*
+        comments  → *comentarios_api* > *comentarios* > *comments*
+        videos    → *videos_api* > *videos*   (si no es de comentarios)
+
+    Cuando varios archivos compiten por la misma categoría gana el de patrón
+    más específico; a igualdad, el más grande, que es el dataset real frente a
+    los recortes de prueba.
+    """
+    best: dict[str, tuple[int, int, str]] = {}   # tipo → (patrón, tamaño, ruta)
+
+    def offer(key: str, path: str, name: str, rank: int):
+        if any(j in name for j in JUNK_MARKERS):
+            rank -= 100
         try:
-            cmd = [sys.executable, script_path] + (extra_args or [])
-            subprocess.run(cmd, check=True)
-            if status_cb:
-                status_cb("✅ Listo.")
-        except subprocess.CalledProcessError:
-            if status_cb:
-                status_cb("❌ Error al ejecutar el script.")
-        except Exception as exc:
-            if status_cb:
-                status_cb(f"❌ Error inesperado: {exc}")
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        current = best.get(key)
+        if current is None or (rank, size) > (current[0], current[1]):
+            best[key] = (rank, size, path)
 
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        entries = sorted(os.listdir(folder))
+    except OSError:
+        return {}
+
+    for f in entries:
+        if not f.endswith(".csv"):
+            continue
+        nl = f.lower()
+        if any(m in nl for m in IGNORE_MARKERS):
+            continue
+        p = os.path.join(folder, f)
+
+        if "enriquecido_fechas_creacion" in nl:
+            offer("enriched", p, nl, 1)
+        elif "con_sentimiento" in nl:
+            offer("sentiment", p, nl, _match_score(nl, SENTIMENT_PROVIDERS))
+        elif (score := _match_score(nl, COMMENT_PATTERNS)):
+            offer("comments", p, nl, score)
+        elif (score := _match_score(nl, VIDEO_PATTERNS)):
+            offer("videos", p, nl, score)
+
+    return {k: v[2] for k, v in best.items()}
 
 
-def abrir_carpeta(path: str, status_cb=None):
+def open_path(path: str) -> tuple[bool, str]:
+    """Abre una ruta con la aplicación del sistema. Devuelve (ok, mensaje)."""
     if not os.path.exists(path):
-        if status_cb:
-            status_cb(f"⚠️ No existe: {path}  —  Ejecuta un análisis primero.")
-        return
+        return False, f"No existe: {path}"
     try:
         if os.name == "nt":
             os.startfile(path)
         else:
             subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", path])
-        if status_cb:
-            status_cb(f"📂 Abriendo: {path}")
+        return True, f"Abriendo {os.path.basename(path) or path}"
     except Exception as exc:
-        if status_cb:
-            status_cb(f"❌ No se pudo abrir: {exc}")
-
-
-def generar_informe(status_cb=None, csv_videos_preset: str | None = None):
-    """Genera informe HTML. Si se pasa csv_videos_preset, omite el selector."""
-    import tkinter as tk
-    from tkinter import filedialog
-
-    data_dir = os.path.join(_project_root(), "data")
-
-    if csv_videos_preset and os.path.isfile(csv_videos_preset):
-        csv_videos = csv_videos_preset
-    else:
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            csv_videos = filedialog.askopenfilename(
-                title="Selecciona el CSV de publicaciones del proyecto",
-                initialdir=data_dir if os.path.exists(data_dir) else _project_root(),
-                filetypes=[
-                    ("CSV de vídeos", "*_videos.csv"),
-                    ("Todos los CSV", "*.csv"),
-                ],
-            )
-            root.destroy()
-        except Exception as exc:
-            if status_cb:
-                status_cb(f"❌ Error abriendo selector: {exc}")
-            return
-
-    if not csv_videos:
-        if status_cb:
-            status_cb("❌ Cancelado — no se seleccionó ningún proyecto.")
-        return
-
-    nombre_base   = os.path.splitext(os.path.basename(csv_videos))[0]
-    proyecto_id   = nombre_base.split("_videos")[0]
-    cuenta        = proyecto_id.replace("user_", "")
-    proyecto_label = f"@{cuenta}"
-
-    if status_cb:
-        status_cb(f"🚀 Generando informe para {proyecto_label}…")
-
-    def _run():
-        script = os.path.join(_project_root(),
-                              "src", "visualization", "generar_informe_html.py")
-        try:
-            subprocess.run([sys.executable, script, csv_videos], check=True)
-        except subprocess.CalledProcessError:
-            if status_cb:
-                status_cb(f"❌ Error al generar el informe de {proyecto_label}.")
-            return
-        except Exception as exc:
-            if status_cb:
-                status_cb(f"❌ Error inesperado: {exc}")
-            return
-
-        informe = os.path.join(
-            _project_root(), "outputs", proyecto_id,
-            "informes", f"{nombre_base}_informe.html",
-        )
-        if os.path.exists(informe):
-            if status_cb:
-                status_cb(f"✅ Informe listo — {proyecto_label} — abriendo en el navegador…")
-            try:
-                if os.name == "nt":
-                    os.startfile(informe)
-                else:
-                    subprocess.run(
-                        ["open" if sys.platform == "darwin" else "xdg-open", informe]
-                    )
-            except Exception:
-                pass
-        else:
-            if status_cb:
-                status_cb(f"✅ Generado para {proyecto_label} (no se pudo abrir automáticamente).")
-
-    threading.Thread(target=_run, daemon=True).start()
+        return False, f"No se pudo abrir: {exc}"
 
 
 # ---------------------------------------------------------------------------
-# Interfaz gráfica — modo claro, layout apaisado
+# Tooltip ligero
+# ---------------------------------------------------------------------------
+
+class Tooltip:
+    """Globo de ayuda sobre cualquier widget, con retardo."""
+
+    def __init__(self, widget, text: str, delay: int = 550):
+        self.widget, self.text, self.delay = widget, text, delay
+        self._after_id = None
+        self._tip = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<Button-1>", self._hide, add="+")
+
+    def _schedule(self, _=None):
+        self._cancel()
+        self._after_id = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self._after_id:
+            try:
+                self.widget.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+
+    def _show(self):
+        if self._tip or not self.text:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 14
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        except Exception:
+            return
+        self._tip = tip = ctk.CTkToplevel(self.widget)
+        tip.wm_overrideredirect(True)
+        tip.wm_geometry(f"+{x}+{y}")
+        tip.attributes("-topmost", True)
+        frame = ctk.CTkFrame(tip, fg_color=SURFACE, corner_radius=6,
+                             border_width=1, border_color=BORDER)
+        frame.pack()
+        ctk.CTkLabel(frame, text=self.text, font=_f(11), text_color=TEXT,
+                     justify="left", wraplength=280).pack(padx=10, pady=6)
+
+    def _hide(self, _=None):
+        self._cancel()
+        if self._tip:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None
+
+
+# ---------------------------------------------------------------------------
+# Aplicación
 # ---------------------------------------------------------------------------
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
+# Estados de un paso
+DONE, READY, BLOCKED, RUNNING = "done", "ready", "blocked", "running"
+
+STATE_GLYPH = {
+    DONE:    ("✓", OK),
+    READY:   ("●", ACCENT),
+    BLOCKED: ("○", MUTED),
+    RUNNING: ("▶", ACCENT),
+}
+
 
 class MenuApp(ctk.CTk):
-
-    # Paleta clara
-    BG          = "#f0f4f8"
-    HEADER_BG   = "#1e3a5f"
-    HEADER_TEXT = "#ffffff"
-    SECTION_BG  = "#dbe4f0"
-    SECTION_TXT = "#1e3a5f"
-    CARD_BG     = "#ffffff"
-    CARD_HOVER  = "#dbeafe"
-    CARD_BORDER = "#cbd5e1"
-    TEXT        = "#1e293b"
-    SUBTITLE    = "#64748b"
-    ACCENT      = "#2563eb"
-    STATUS_TXT  = "#64748b"
-    EXIT_BG     = "#fee2e2"
-    EXIT_HOVER  = "#fca5a5"
-    EXIT_TXT    = "#b91c1c"
-    OK_COLOR    = "#16a34a"   # verde — archivo disponible
-    WARN_COLOR  = "#d97706"   # ámbar — paso pendiente
 
     def __init__(self):
         super().__init__()
         self.title("TikTok OSINT & Analytics Toolkit")
-        self.geometry("960x730")
-        self.minsize(820, 600)
-        self.configure(fg_color=self.BG)
-        self.resizable(True, True)
+        self.geometry("1180x830")
+        self.minsize(1000, 680)
+        self.configure(fg_color=BG)
 
         # Estado del proyecto activo
-        self._active_project: str | None = None      # ruta a data/{proyecto}/
-        self._project_files: dict[str, str] = {}     # clave → ruta absoluta
+        self._project: str | None = None
+        self._files: dict[str, str] = {}
 
-        # Estado de navegación
-        self._tab: str = TABS[0][0]                  # "usuario" | "hashtag"
-        self._module_id: str = MODULES[0]["id"]      # módulo activo
-        self._action_idx: int = 0                    # acción activa dentro del módulo
-        self._module_buttons: dict[str, ctk.CTkButton] = {}
-        self._action_buttons: list[ctk.CTkButton] = []
+        # Estado de ejecución (sondeo en el hilo de UI, sin hilos auxiliares)
+        self._proc: subprocess.Popen | None = None
+        self._proc_action: dict | None = None
+        self._t0: float = 0.0
+        self._poll_job = None
+        self._stopping = False   # parada pedida por el usuario, no un fallo
+
+        # Navegación
+        self._current_id: str = ACTIONS[0]["id"]
+        self._rows: dict[str, dict] = {}   # id → widgets de la fila lateral
+
+        # Valores de los campos por acción: sobreviven a la navegación y a la
+        # sesión, para no reescribir la búsqueda cada vez.
+        self._input_values: dict[str, dict[str, str]] = {}
+        self._entries: dict[str, ctk.StringVar] = {}
 
         self._restore_state()
         self._build_ui()
-        self._refresh_modules()
+        if self._project:
+            self._project_label.configure(text=os.path.basename(self._project))
+        self._render_chips()
+        self._select(self._current_id)
+        self._bind_shortcuts()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ==================================================================
+    # Construcción de la interfaz
+    # ==================================================================
+
+    def _build_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        self._build_header()      # fila 0
+        self._build_project_bar()  # fila 1
+        self._build_body()        # fila 2
+        self._build_status_bar()  # fila 3
 
     # ------------------------------------------------------------------
-    # Persistencia ligera del estado de navegación (equivalente de escritorio
-    # a "mantener la selección"; sobrevive a reinicios sin dependencias nuevas)
+    def _build_header(self):
+        hdr = ctk.CTkFrame(self, fg_color=HEADER, corner_radius=0, height=62)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_propagate(False)
+
+        ctk.CTkLabel(hdr, text="🎵  TikTok OSINT & Analytics Toolkit",
+                     font=_f(19, "bold"), text_color=ON_HEADER
+                     ).pack(side="left", padx=22)
+
+        def util(text, cmd, tip, width=118):
+            b = ctk.CTkButton(hdr, text=text, command=cmd, width=width, height=34,
+                              font=_f(12, "bold"), corner_radius=8,
+                              fg_color=("#26415e", "#1e2a3a"),
+                              hover_color=("#33526f", "#2b3b4f"),
+                              text_color=ON_HEADER)
+            b.pack(side="right", padx=(0, 8), pady=14)
+            Tooltip(b, tip)
+            return b
+
+        self._theme_btn = util("🌙  Oscuro", self._toggle_theme,
+                               "Alternar tema claro / oscuro", 112)
+        util("🗂️  Proyecto", lambda: self._open(_project_root()),
+             "Abrir la carpeta raíz del proyecto en el explorador")
+        util("📂  Outputs", lambda: self._open(os.path.join(_project_root(), "outputs")),
+             "Abrir la carpeta de resultados generados")
+
+    def _toggle_theme(self):
+        dark = ctk.get_appearance_mode() == "Dark"
+        ctk.set_appearance_mode("light" if dark else "dark")
+        self._theme_btn.configure(text="🌙  Oscuro" if dark else "☀️  Claro")
+        self._refresh_rows()
+
     # ------------------------------------------------------------------
+    def _build_project_bar(self):
+        bar = ctk.CTkFrame(self, fg_color=SURFACE_ALT, corner_radius=0, height=64)
+        bar.grid(row=1, column=0, sticky="ew")
+        bar.grid_propagate(False)
+
+        ctk.CTkLabel(bar, text="📁", font=_f(18)).pack(side="left", padx=(22, 10))
+
+        info = ctk.CTkFrame(bar, fg_color="transparent")
+        info.pack(side="left", fill="both", expand=True, pady=10)
+
+        self._project_label = ctk.CTkLabel(
+            info, text="Ningún proyecto seleccionado", font=_f(14, "bold"),
+            text_color=TEXT, anchor="w")
+        self._project_label.pack(anchor="w")
+
+        self._chips = ctk.CTkFrame(info, fg_color="transparent")
+        self._chips.pack(anchor="w", pady=(3, 0))
+
+        btn = ctk.CTkButton(bar, text="Cambiar proyecto  ▾",
+                            command=self._select_project,
+                            width=168, height=36, font=_f(12, "bold"),
+                            corner_radius=8, fg_color=ACCENT, hover_color=ACCENT_HOV)
+        btn.pack(side="right", padx=22)
+        Tooltip(btn, "Elegir sobre qué carpeta de data/ trabajar   (Ctrl+O)")
+
+    def _render_chips(self):
+        for w in self._chips.winfo_children():
+            w.destroy()
+        if not self._project:
+            ctk.CTkLabel(self._chips,
+                         text="Elige un proyecto para ver el progreso del flujo",
+                         font=_f(11), text_color=MUTED).pack(side="left")
+            return
+        for key, icon, label in PROJECT_CHIPS:
+            has = key in self._files
+            chip = ctk.CTkFrame(self._chips,
+                                fg_color=ACCENT_SOFT if has else "transparent",
+                                corner_radius=10, border_width=0 if has else 1,
+                                border_color=BORDER)
+            chip.pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(chip, text=f"{icon}  {label}" if has else f"○  {label}",
+                         font=_f(10, "bold" if has else "normal"),
+                         text_color=TEXT if has else MUTED
+                         ).pack(padx=9, pady=3)
+
+    # ------------------------------------------------------------------
+    def _build_body(self):
+        body = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        body.grid(row=2, column=0, sticky="nsew", padx=16, pady=14)
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+
+        self._build_sidebar(body)
+        self._build_detail(body)
+
+    # ------------------------------------------------------------------
+    def _build_sidebar(self, parent):
+        side = ctk.CTkScrollableFrame(parent, fg_color=SURFACE, corner_radius=12,
+                                      border_width=1, border_color=BORDER, width=272)
+        side.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
+
+        by_group: dict[str, list] = {}
+        for a in ACTIONS:
+            by_group.setdefault(a["group"], []).append(a)
+
+        for gid, gtitle in GROUPS:
+            items = by_group.get(gid, [])
+            if not items:
+                continue
+            ctk.CTkLabel(side, text=gtitle.upper(), font=_f(10, "bold"),
+                         text_color=ACCENT, anchor="w"
+                         ).pack(anchor="w", padx=14, pady=(12, 3))
+            for act in items:
+                self._build_row(side, act)
+
+        ctk.CTkLabel(side, text="", height=6).pack()
+
+    def _build_row(self, parent, act: dict):
+        """Fila clicable de la barra lateral: icono · etiqueta · estado."""
+        row = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=8, height=32)
+        row.pack(fill="x", padx=8)
+        row.pack_propagate(False)
+
+        icon = ctk.CTkLabel(row, text=act["icon"], font=_f(14), width=26)
+        icon.pack(side="left", padx=(8, 4))
+
+        label = ctk.CTkLabel(row, text=act["label"], font=_f(12), text_color=TEXT,
+                             anchor="w")
+        label.pack(side="left", fill="x", expand=True)
+
+        state = ctk.CTkLabel(row, text="○", font=_f(13, "bold"), text_color=MUTED,
+                             width=22)
+        state.pack(side="right", padx=(0, 8))
+
+        self._rows[act["id"]] = {"row": row, "icon": icon,
+                                 "label": label, "state": state}
+
+        # Un único tooltip para toda la fila: entrar en un hijo genera <Leave>
+        # en el padre, así que sin compartirlo el globo parpadearía.
+        tip = Tooltip(row, act["help"])
+        for w in (row, icon, label, state):
+            w.bind("<Button-1>", lambda _e, i=act["id"]: self._select(i))
+            w.bind("<Enter>", lambda _e, i=act["id"]: (self._hover(i, True),
+                                                       tip._schedule()))
+            w.bind("<Leave>", lambda _e, i=act["id"]: (self._hover(i, False),
+                                                       tip._hide()))
+
+    def _hover(self, action_id: str, entering: bool):
+        if action_id == self._current_id:
+            return
+        self._rows[action_id]["row"].configure(
+            fg_color=SURFACE_ALT if entering else "transparent")
+
+    # ------------------------------------------------------------------
+    def _build_detail(self, parent):
+        panel = ctk.CTkFrame(parent, fg_color=SURFACE, corner_radius=12,
+                             border_width=1, border_color=BORDER)
+        panel.grid(row=0, column=1, sticky="nsew")
+        panel.grid_columnconfigure(0, weight=1)
+        panel.grid_rowconfigure(6, weight=1)
+
+        pad = 26
+
+        self._breadcrumb = ctk.CTkLabel(panel, text="", font=_f(11, "bold"),
+                                        text_color=ACCENT, anchor="w")
+        self._breadcrumb.grid(row=0, column=0, sticky="w", padx=pad, pady=(20, 2))
+
+        self._title = ctk.CTkLabel(panel, text="", font=_f(24, "bold"),
+                                   text_color=TEXT, anchor="w")
+        self._title.grid(row=1, column=0, sticky="w", padx=pad, pady=(0, 6))
+
+        self._help = ctk.CTkLabel(panel, text="", font=_f(12.5), text_color=MUTED,
+                                  anchor="w", justify="left", wraplength=560)
+        self._help.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, 14))
+
+        # Campos de entrada del paso (solo los tienen las acciones de captura)
+        self._inputs_holder = ctk.CTkFrame(panel, fg_color="transparent")
+        self._inputs_holder.grid(row=3, column=0, sticky="ew", padx=pad)
+
+        # Tarjeta de requisitos
+        self._req_card = ctk.CTkFrame(panel, fg_color=SURFACE_ALT, corner_radius=10)
+        self._req_card.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, 16))
+        ctk.CTkLabel(self._req_card, text="REQUISITOS", font=_f(9, "bold"),
+                     text_color=MUTED, anchor="w"
+                     ).pack(anchor="w", padx=14, pady=(9, 2))
+        self._req_body = ctk.CTkFrame(self._req_card, fg_color="transparent")
+        self._req_body.pack(fill="x", padx=14, pady=(0, 10))
+
+        # Acciones
+        actions = ctk.CTkFrame(panel, fg_color="transparent")
+        actions.grid(row=5, column=0, sticky="ew", padx=pad, pady=(0, 16))
+
+        self._run_btn = ctk.CTkButton(actions, text="▶   Ejecutar",
+                                      command=self._run_current,
+                                      width=190, height=46, font=_f(14, "bold"),
+                                      corner_radius=10, fg_color=ACCENT,
+                                      hover_color=ACCENT_HOV)
+        self._run_btn.pack(side="left")
+        Tooltip(self._run_btn, "Lanzar este paso   (Ctrl+R)")
+
+        self._stop_btn = ctk.CTkButton(actions, text="■   Detener",
+                                       command=self._stop_proc,
+                                       width=140, height=46, font=_f(13, "bold"),
+                                       corner_radius=10, fg_color=DANGER_SOFT,
+                                       hover_color=("#fca5a5", "#4c2626"),
+                                       text_color=DANGER, state="disabled")
+        self._stop_btn.pack(side="left", padx=10)
+        Tooltip(self._stop_btn, "Terminar el proceso en curso y su árbol   (Esc)")
+
+        self._timer = ctk.CTkLabel(actions, text="", font=_f(12, "bold"),
+                                   text_color=ACCENT)
+        self._timer.pack(side="left", padx=12)
+
+        self._hint = ctk.CTkLabel(actions, text="", font=_f(11), text_color=WARN,
+                                  anchor="w", justify="left", wraplength=320)
+        self._hint.pack(side="left", padx=4)
+
+        # Registro de actividad
+        logbox = ctk.CTkFrame(panel, fg_color="transparent")
+        logbox.grid(row=6, column=0, sticky="nsew", padx=pad, pady=(0, 20))
+        logbox.grid_columnconfigure(0, weight=1)
+        logbox.grid_rowconfigure(1, weight=1)
+
+        head = ctk.CTkFrame(logbox, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        ctk.CTkLabel(head, text="ACTIVIDAD", font=_f(9, "bold"),
+                     text_color=MUTED).pack(side="left")
+        ctk.CTkLabel(head,
+                     text="cada script se ejecuta en su propia ventana de consola",
+                     font=_f(9), text_color=MUTED).pack(side="left", padx=8)
+
+        self._log = ctk.CTkTextbox(logbox, font=ctk.CTkFont(family="Consolas", size=11),
+                                   fg_color=SURFACE_ALT, text_color=TEXT,
+                                   corner_radius=8, border_width=0, wrap="word",
+                                   activate_scrollbars=True)
+        self._log.grid(row=1, column=0, sticky="nsew")
+        self._log.configure(state="disabled")
+
+    # ------------------------------------------------------------------
+    def _build_status_bar(self):
+        bar = ctk.CTkFrame(self, fg_color=SURFACE_ALT, corner_radius=0, height=34)
+        bar.grid(row=3, column=0, sticky="ew")
+        bar.grid_propagate(False)
+
+        self._status_var = ctk.StringVar(
+            value="Listo. Elige un proyecto y un paso del flujo.")
+        ctk.CTkLabel(bar, textvariable=self._status_var, font=_f(11),
+                     text_color=MUTED, anchor="w"
+                     ).pack(side="left", padx=18, fill="x", expand=True)
+
+        ctk.CTkButton(bar, text="Salir", command=self._on_close, width=76, height=24,
+                      font=_f(11), corner_radius=6, fg_color="transparent",
+                      border_width=1, border_color=BORDER, text_color=MUTED,
+                      hover_color=DANGER_SOFT).pack(side="right", padx=14)
+
+    def _bind_shortcuts(self):
+        self.bind("<Control-o>", lambda _e: self._select_project())
+        self.bind("<Control-r>", lambda _e: self._run_current())
+        self.bind("<Escape>", lambda _e: self._stop_proc())
+
+    # ==================================================================
+    # Estado y refresco
+    # ==================================================================
+
+    def _action(self, action_id: str) -> dict:
+        return next(a for a in ACTIONS if a["id"] == action_id)
+
+    def _current(self) -> dict:
+        return self._action(self._current_id)
+
+    def _state_of(self, act: dict) -> str:
+        """Estado del paso: running / blocked / done / ready."""
+        if self._proc_action and self._proc_action["id"] == act["id"] and self._busy():
+            return RUNNING
+        if not self._project:
+            return READY
+        missing = [k for k in act["requires"] if k not in self._files]
+        if missing:
+            return BLOCKED
+        if act["produces"] and act["produces"] in self._files:
+            return DONE
+        return READY
+
+    def _select(self, action_id: str):
+        self._current_id = action_id
+        self._save_state()
+        self._refresh_rows()
+        self._refresh_detail()
+
+    def _refresh_rows(self):
+        for act in ACTIONS:
+            r = self._rows[act["id"]]
+            st = self._state_of(act)
+            glyph, color = STATE_GLYPH[st]
+            active = act["id"] == self._current_id
+            r["row"].configure(fg_color=ACCENT_SOFT if active else "transparent")
+            r["label"].configure(text_color=TEXT if active or st != BLOCKED else MUTED,
+                                 font=_f(12, "bold" if active else "normal"))
+            r["state"].configure(text=glyph, text_color=color)
+
+    def _refresh_detail(self):
+        act = self._current()
+        group = dict(GROUPS)[act["group"]]
+        self._breadcrumb.configure(text=f"{group}   ›   {act['label']}")
+        self._title.configure(text=f"{act['icon']}   {act['label']}")
+        self._help.configure(text=act["help"])
+        self._render_inputs(act)
+        self._render_requirements(act)
+        self._refresh_buttons()
+
+    # ------------------------------------------------------------------
+    # Campos de entrada del paso
+    # ------------------------------------------------------------------
+
+    def _render_inputs(self, act: dict):
+        """Dibuja los campos del paso. Los valores se conservan al navegar."""
+        for w in self._inputs_holder.winfo_children():
+            w.destroy()
+        self._entries = {}
+
+        specs = act.get("inputs") or []
+        if not specs:
+            self._inputs_holder.grid_configure(pady=0)
+            return
+        self._inputs_holder.grid_configure(pady=(0, 14))
+
+        store = self._input_values.setdefault(act["id"], {})
+
+        card = ctk.CTkFrame(self._inputs_holder, fg_color=SURFACE_ALT, corner_radius=10)
+        card.pack(fill="x")
+        ctk.CTkLabel(card, text="PARÁMETROS DE LA BÚSQUEDA", font=_f(9, "bold"),
+                     text_color=MUTED, anchor="w"
+                     ).pack(anchor="w", padx=14, pady=(10, 6))
+
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=14, pady=(0, 12))
+
+        # Las fechas comparten fila; el resto ocupa el ancho completo.
+        dates = [s for s in specs if s["kind"] == "date"]
+        main = [s for s in specs if s["kind"] != "date"]
+
+        def make_entry(parent, spec, width=None):
+            box = ctk.CTkFrame(parent, fg_color="transparent")
+            star = "  *" if spec["required"] else "   (opcional)"
+            ctk.CTkLabel(box, text=spec["label"] + star, font=_f(11, "bold"),
+                         text_color=TEXT, anchor="w").pack(anchor="w", pady=(0, 3))
+            # Sin textvariable: CustomTkinter oculta el placeholder cuando el
+            # campo está atado a uno, y el ejemplo de formato es justo lo que
+            # hace falta ver en un campo vacío.
+            entry = ctk.CTkEntry(
+                box, placeholder_text=spec["placeholder"],
+                height=38, font=_f(13), corner_radius=8,
+                fg_color=SURFACE, border_color=BORDER, text_color=TEXT,
+                **({"width": width} if width else {}))
+            entry.pack(fill="x" if not width else "none", anchor="w")
+            previo = store.get(spec["flag"], "")
+            if previo:
+                entry.insert(0, previo)
+            if spec["hint"]:
+                ctk.CTkLabel(box, text=spec["hint"], font=_f(10), text_color=MUTED,
+                             anchor="w", justify="left", wraplength=520
+                             ).pack(anchor="w", pady=(3, 0))
+            entry.bind("<KeyRelease>",
+                       lambda _e, f=spec["flag"], w=entry: self._on_input_change(
+                           act["id"], f, w))
+            entry.bind("<FocusOut>",
+                       lambda _e, f=spec["flag"], w=entry: self._on_input_change(
+                           act["id"], f, w))
+            entry.bind("<Return>", lambda _e: self._run_current())
+            self._entries[spec["flag"]] = entry
+            return box
+
+        for spec in main:
+            make_entry(body, spec).pack(fill="x", pady=(0, 10))
+
+        if dates:
+            row = ctk.CTkFrame(body, fg_color="transparent")
+            row.pack(fill="x")
+            for spec in dates:
+                make_entry(row, spec, width=150).pack(side="left", padx=(0, 14))
+            ctk.CTkLabel(row, text="Déjalas vacías para no filtrar por fecha.",
+                         font=_f(10), text_color=MUTED
+                         ).pack(side="left", pady=(18, 0))
+
+    def _on_input_change(self, action_id: str, flag: str, entry):
+        self._input_values.setdefault(action_id, {})[flag] = entry.get()
+        self._refresh_buttons()
+
+    @staticmethod
+    def _valid_date(text: str) -> bool:
+        try:
+            datetime.strptime(text.strip(), "%d-%m-%Y")
+            return True
+        except ValueError:
+            return False
+
+    def _collect_inputs(self, act: dict) -> dict[str, str]:
+        """Valores vigentes de los campos del paso.
+
+        Lee los widgets cuando son los del paso mostrado, en lugar de confiar
+        en que el evento de tecleo haya sincronizado la caché: así validar y
+        ejecutar usan siempre lo que el usuario tiene delante.
+        """
+        store = self._input_values.setdefault(act["id"], {})
+        if act["id"] == self._current_id:
+            for spec in act.get("inputs") or []:
+                widget = self._entries.get(spec["flag"])
+                if widget is not None:
+                    store[spec["flag"]] = widget.get()
+        return store
+
+    def _check_inputs(self, act: dict) -> str | None:
+        """Devuelve el motivo por el que no se puede ejecutar, o None si todo va bien."""
+        store = self._collect_inputs(act)
+        for spec in act.get("inputs") or []:
+            value = store.get(spec["flag"], "").strip()
+            if not value:
+                if spec["required"]:
+                    return f"Rellena «{spec['label']}» para poder ejecutar."
+                continue
+            if spec["kind"] == "date" and not self._valid_date(value):
+                return f"«{spec['label']}» debe tener el formato dd-mm-aaaa."
+        return None
+
+    def _render_requirements(self, act: dict):
+        for w in self._req_body.winfo_children():
+            w.destroy()
+
+        def line(text, color):
+            ctk.CTkLabel(self._req_body, text=text, font=_f(11.5), text_color=color,
+                         anchor="w", justify="left", wraplength=560
+                         ).pack(anchor="w", pady=1)
+
+        if not act["requires"]:
+            line("✓  Este paso no depende de ningún archivo previo.", OK)
+        elif not self._project:
+            for key in act["requires"]:
+                label, _ = FILE_LABELS[key]
+                line(f"•  Necesita el {label}.", MUTED)
+            line("ℹ  Sin proyecto activo el script abrirá su propio selector.", MUTED)
+        else:
+            for key in act["requires"]:
+                label, origin = FILE_LABELS[key]
+                path = self._files.get(key)
+                if path:
+                    line(f"✓  {label}:  {os.path.basename(path)}", OK)
+                else:
+                    line(f"✗  Falta el {label} — ejecuta antes «{origin}».", WARN)
+
+    def _refresh_buttons(self):
+        act = self._current()
+        st = self._state_of(act)
+        busy = self._busy()
+        blocked = st == BLOCKED
+        pending = None if busy else self._check_inputs(act)
+
+        if busy:
+            running_here = self._proc_action and self._proc_action["id"] == act["id"]
+            text = "⏳   En ejecución…" if running_here else "⏳   Ocupado"
+        elif st == DONE:
+            text = "▶   Volver a ejecutar"
+        else:
+            text = "▶   Ejecutar"
+
+        # Motivo visible junto al botón cuando falta o falla un campo.
+        self._hint.configure(text=pending or "", text_color=WARN)
+
+        disabled = busy or blocked or pending is not None
+        self._run_btn.configure(
+            text=text,
+            state="disabled" if disabled else "normal",
+            fg_color=DISABLED if disabled else ACCENT,
+        )
+        self._stop_btn.configure(state="normal" if busy else "disabled")
+
+    # ==================================================================
+    # Registro de actividad
+    # ==================================================================
+
+    def _log_line(self, text: str):
+        self._log.configure(state="normal")
+        self._log.insert("end", f"{datetime.now():%H:%M:%S}  {text}\n")
+        self._log.see("end")
+        self._log.configure(state="disabled")
+
+    def _status(self, msg: str):
+        self._status_var.set(msg)
+
+    # ==================================================================
+    # Ejecución de procesos (sondeo, sin hilos)
+    # ==================================================================
+
+    def _busy(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def _run_current(self):
+        act = self._current()
+        if self._busy():
+            self._status("Ya hay un proceso en marcha; espera a que termine.")
+            return
+        if self._state_of(act) == BLOCKED:
+            self._status("Faltan archivos de entrada para este paso.")
+            return
+        problema = self._check_inputs(act)
+        if problema:
+            self._status(problema)
+            return
+
+        script = os.path.join(_project_root(), act["script"])
+        if not os.path.isfile(script):
+            self._log_line(f"❌ No se encuentra el script: {act['script']}")
+            self._status("Script no encontrado.")
+            return
+
+        cmd = [sys.executable, script]
+        arg_key = act.get("arg_key")
+        if arg_key and self._project:
+            path = self._files.get(arg_key)
+            if path:
+                cmd.append(path)
+
+        # Parámetros recogidos en el panel. --no-prompt evita que el script
+        # vuelva a preguntar por consola los campos que se hayan dejado vacíos.
+        specs = act.get("inputs") or []
+        if specs:
+            store = self._collect_inputs(act)
+            for spec in specs:
+                value = store.get(spec["flag"], "").strip()
+                if value:
+                    cmd += [spec["flag"], value]
+            cmd.append("--no-prompt")
+
+        # Ventana de consola propia: varios scripts son interactivos y
+        # necesitan stdin real (elección de proveedor de IA, nº de vídeos…).
+        kwargs = {}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+
+        try:
+            self._proc = subprocess.Popen(cmd, cwd=_project_root(), **kwargs)
+        except Exception as exc:
+            self._log_line(f"❌ No se pudo lanzar «{act['label']}»: {exc}")
+            self._status("Error al lanzar el proceso.")
+            return
+
+        self._proc_action = act
+        self._t0 = time.time()
+        self._save_state()
+        self._log_line(f"▶ {act['label']} — {os.path.basename(act['script'])}"
+                       + (f"  ←  {os.path.basename(cmd[2])}" if len(cmd) > 2 else ""))
+        self._status(f"Ejecutando «{act['label']}» en una ventana de consola aparte.")
+        self._refresh_rows()
+        self._refresh_buttons()
+        self._poll()
+
+    def _poll(self):
+        if self._proc is None:
+            return
+        rc = self._proc.poll()
+        if rc is None:
+            elapsed = int(time.time() - self._t0)
+            self._timer.configure(text=f"⏱  {elapsed // 60:02d}:{elapsed % 60:02d}")
+            self._poll_job = self.after(400, self._poll)
+            return
+        self._on_finished(rc)
+
+    def _on_finished(self, rc: int):
+        act = self._proc_action
+        elapsed = int(time.time() - self._t0)
+        dur = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
+        self._proc = None
+        self._proc_action = None
+        self._poll_job = None
+        self._timer.configure(text="")
+
+        label = act["label"] if act else "proceso"
+        if self._stopping:
+            # El código de salida tras un taskkill no informa de nada útil.
+            self._stopping = False
+            self._log_line(f"⏹ {label} — detenido por ti tras {dur}")
+            self._status(f"«{label}» detenido.")
+        elif rc == 0:
+            self._log_line(f"✅ {label} — completado en {dur}")
+            self._status(f"«{label}» completado en {dur}.")
+        else:
+            self._log_line(f"❌ {label} — terminó con código {rc} tras {dur}")
+            self._status(f"«{label}» terminó con errores (código {rc}). "
+                         "Revisa la ventana de consola.")
+
+        # Reescanear: el paso puede haber generado archivos nuevos.
+        before = set(self._files)
+        if self._project:
+            self._files = scan_project_files(self._project)
+            nuevos = set(self._files) - before
+            if nuevos:
+                nombres = ", ".join(FILE_LABELS[k][0] for k in nuevos if k in FILE_LABELS)
+                self._log_line(f"   ↳ nuevo en el proyecto: {nombres}")
+            self._render_chips()
+
+        if act and act.get("opens_report") and rc == 0:
+            self._open_report()
+
+        self._refresh_rows()
+        self._refresh_detail()
+
+    def _stop_proc(self):
+        if not self._busy():
+            return
+        self._stopping = True
+        try:
+            if os.name == "nt":
+                # /T mata también los nietos (Chromium de Playwright).
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                               capture_output=True)
+            else:
+                self._proc.terminate()
+            self._status("Deteniendo el proceso…")
+        except Exception as exc:
+            self._stopping = False
+            self._log_line(f"⚠ No se pudo detener el proceso: {exc}")
+
+    def _open_report(self):
+        """Localiza y abre el informe HTML recién generado."""
+        videos = self._files.get("videos")
+        if not videos:
+            return
+        base = os.path.splitext(os.path.basename(videos))[0]
+        proyecto_id = base.split("_videos")[0]
+        informe = os.path.join(_project_root(), "outputs", proyecto_id,
+                               "informes", f"{base}_informe.html")
+        if os.path.exists(informe):
+            ok, msg = open_path(informe)
+            self._log_line(("🌐 " if ok else "⚠ ") + msg)
+        else:
+            self._log_line("⚠ Informe generado pero no encontrado en la ruta esperada; "
+                           "ábrelo desde Outputs.")
+
+    def _open(self, path: str):
+        ok, msg = open_path(path)
+        self._status(msg)
+        if not ok:
+            self._log_line(f"⚠ {msg}")
+
+    # ==================================================================
+    # Proyecto activo
+    # ==================================================================
+
+    def _set_project(self, folder: str):
+        self._project = folder
+        self._files = scan_project_files(folder)
+        self._project_label.configure(text=os.path.basename(folder))
+        self._render_chips()
+        self._save_state()
+        self._log_line(f"📁 Proyecto activo: {os.path.basename(folder)} "
+                       f"({len(self._files)} archivos reconocidos)")
+        self._status(f"Proyecto activo: {os.path.basename(folder)}")
+        self._refresh_rows()
+        self._refresh_detail()
+
+    def _select_project(self):
+        data_dir = os.path.join(_project_root(), "data")
+        try:
+            proyectos = sorted(
+                (d for d in os.listdir(data_dir)
+                 if os.path.isdir(os.path.join(data_dir, d))),
+                key=str.lower)
+        except OSError:
+            proyectos = []
+
+        if not proyectos:
+            self._pick_folder(data_dir)
+            return
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Seleccionar proyecto")
+        dlg.geometry("560x480")
+        dlg.minsize(460, 380)
+        dlg.configure(fg_color=BG)
+        dlg.transient(self)
+        # grab_set inmediato falla en Windows si la ventana aún no es visible.
+        dlg.after(120, dlg.grab_set)
+
+        ctk.CTkLabel(dlg, text="Elige el proyecto sobre el que trabajar",
+                     font=_f(15, "bold"), text_color=TEXT
+                     ).pack(anchor="w", padx=22, pady=(20, 2))
+        ctk.CTkLabel(dlg, text="Los iconos indican qué pasos del flujo ya tienen datos.",
+                     font=_f(11), text_color=MUTED
+                     ).pack(anchor="w", padx=22, pady=(0, 10))
+
+        search_var = ctk.StringVar()
+        ctk.CTkEntry(dlg, textvariable=search_var, placeholder_text="Filtrar…",
+                     height=34, font=_f(12), corner_radius=8,
+                     fg_color=SURFACE, border_color=BORDER
+                     ).pack(fill="x", padx=22, pady=(0, 8))
+
+        scroll = ctk.CTkScrollableFrame(dlg, fg_color=SURFACE, corner_radius=10,
+                                        border_width=1, border_color=BORDER)
+        scroll.pack(fill="both", expand=True, padx=22)
+
+        current = os.path.basename(self._project) if self._project else ""
+        selected = ctk.StringVar(value=current if current in proyectos else proyectos[0])
+
+        # El escaneo de cada carpeta se cachea: evita releer en cada filtrado.
+        cache: dict[str, dict] = {}
+
+        def render(_=None):
+            for w in scroll.winfo_children():
+                w.destroy()
+            needle = search_var.get().strip().lower()
+            shown = [p for p in proyectos if needle in p.lower()]
+            if not shown:
+                ctk.CTkLabel(scroll, text="Sin coincidencias", font=_f(11),
+                             text_color=MUTED).pack(pady=16)
+                return
+            for p in shown:
+                if p not in cache:
+                    cache[p] = scan_project_files(os.path.join(data_dir, p))
+                files = cache[p]
+                marks = "  ".join(
+                    icon if key in files else "○"
+                    for key, icon, _lbl in PROJECT_CHIPS)
+                ctk.CTkRadioButton(
+                    scroll, text=f"  {marks}    {p}", variable=selected, value=p,
+                    font=_f(12), text_color=TEXT, radiobutton_width=17,
+                    radiobutton_height=17, border_width_unchecked=2,
+                ).pack(anchor="w", pady=4, padx=12)
+
+        search_var.trace_add("write", lambda *_: render())
+        render()
+
+        ctk.CTkLabel(dlg, text="📹 vídeos    💬 comentarios    🤖 sentimiento    "
+                              "📅 edad de cuentas    ○ pendiente",
+                     font=_f(9.5), text_color=MUTED).pack(pady=(8, 2))
+
+        row = ctk.CTkFrame(dlg, fg_color="transparent")
+        row.pack(fill="x", padx=22, pady=(4, 18))
+
+        def confirm():
+            name = selected.get()
+            dlg.destroy()
+            if name:
+                self._set_project(os.path.join(data_dir, name))
+
+        def manual():
+            dlg.destroy()
+            self._pick_folder(data_dir)
+
+        ctk.CTkButton(row, text="Aceptar", command=confirm, width=120, height=36,
+                      font=_f(12, "bold"), corner_radius=8,
+                      fg_color=ACCENT, hover_color=ACCENT_HOV).pack(side="right")
+        ctk.CTkButton(row, text="Otra carpeta…", command=manual, width=140, height=36,
+                      font=_f(12), corner_radius=8, fg_color="transparent",
+                      border_width=1, border_color=BORDER, text_color=TEXT,
+                      hover_color=SURFACE_ALT).pack(side="right", padx=8)
+        ctk.CTkButton(row, text="Cancelar", command=dlg.destroy, width=110, height=36,
+                      font=_f(12), corner_radius=8, fg_color="transparent",
+                      border_width=1, border_color=BORDER, text_color=MUTED,
+                      hover_color=SURFACE_ALT).pack(side="left")
+
+        dlg.bind("<Return>", lambda _e: confirm())
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+
+    def _pick_folder(self, initial_dir: str):
+        """Selector nativo de carpeta, colgado del root existente."""
+        from tkinter import filedialog
+        folder = filedialog.askdirectory(
+            parent=self,
+            title="Selecciona la carpeta del proyecto",
+            initialdir=initial_dir if os.path.isdir(initial_dir) else _project_root(),
+        )
+        if folder:
+            self._set_project(folder)
+
+    # ==================================================================
+    # Persistencia ligera de la sesión
+    # ==================================================================
+
     def _state_path(self) -> str:
         return os.path.join(_project_root(), "data", ".menu_state.json")
 
     def _restore_state(self):
         try:
-            with open(self._state_path(), "r", encoding="utf-8") as f:
+            with open(self._state_path(), encoding="utf-8") as f:
                 st = json.load(f)
-            if st.get("tab") in {t[0] for t in TABS}:
-                self._tab = st["tab"]
-            if any(m["id"] == st.get("module") for m in MODULES):
-                self._module_id = st["module"]
         except Exception:
-            pass
+            return
+        if any(a["id"] == st.get("action") for a in ACTIONS):
+            self._current_id = st["action"]
+        folder = st.get("project")
+        if folder and os.path.isdir(folder):
+            self._project = folder
+            self._files = scan_project_files(folder)
+        if isinstance(st.get("inputs"), dict):
+            self._input_values = st["inputs"]
 
     def _save_state(self):
         try:
             os.makedirs(os.path.dirname(self._state_path()), exist_ok=True)
             with open(self._state_path(), "w", encoding="utf-8") as f:
-                json.dump({"tab": self._tab, "module": self._module_id}, f)
+                json.dump({"action": self._current_id, "project": self._project,
+                           "inputs": self._input_values}, f)
         except Exception:
             pass
 
-    # ------------------------------------------------------------------
-    def _build_ui(self):
-        self._build_header()
-        self._build_footer()          # anclado abajo primero
-        self._build_tabs()
-        self._build_project_bar()
-        self._build_modules_row()
-        self._build_actions_row()
-        self._build_action_panel()
-
-    # ------------------------------------------------------------------
-    def _build_header(self):
-        hdr = ctk.CTkFrame(self, fg_color=self.HEADER_BG, corner_radius=0, height=64)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-
-        ctk.CTkLabel(
-            hdr,
-            text="🎵  TikTok OSINT & Analytics Toolkit",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=self.HEADER_TEXT,
-        ).pack(side="left", padx=24, pady=0)
-
-        # Botones fijos de utilidad (derecha)
-        def _hbtn(text, cmd, tip):
-            b = ctk.CTkButton(
-                hdr, text=text, command=cmd,
-                width=110, height=34,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                fg_color="#2b517a", hover_color="#356094",
-                text_color=self.HEADER_TEXT, corner_radius=8,
+    # ==================================================================
+    def _on_close(self):
+        if self._busy():
+            from tkinter import messagebox
+            resp = messagebox.askyesnocancel(
+                "Proceso en marcha",
+                "Hay un proceso ejecutándose.\n\n"
+                "Sí = terminarlo y salir\n"
+                "No = salir dejándolo en segundo plano\n"
+                "Cancelar = no salir",
+                parent=self,
             )
-            b.pack(side="right", padx=(0, 8), pady=14)
-            return b
-
-        _hbtn("🗂️ Proyecto",
-              lambda: abrir_carpeta(_project_root(), status_cb=self._status),
-              "Abrir la carpeta raíz del proyecto")
-        _hbtn("📂 Outputs",
-              lambda: abrir_carpeta(os.path.join(_project_root(), "outputs"),
-                                    status_cb=self._status),
-              "Abrir la carpeta de resultados")
-        # Cookies destacado (paso 0)
-        cookies = ctk.CTkButton(
-            hdr, text="🔑 Cookies",
-            command=lambda: run_script("src/scrapers/1-guardar_sesion.py",
-                                       status_cb=self._status),
-            width=120, height=34,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=self.ACCENT, hover_color="#1d4ed8",
-            text_color="#ffffff", corner_radius=8,
-        )
-        cookies.pack(side="right", padx=(0, 14), pady=14)
-
-    # ------------------------------------------------------------------
-    def _build_tabs(self):
-        """Nivel 1 — selector primario Usuario | Hashtag."""
-        row = ctk.CTkFrame(self, fg_color=self.BG)
-        row.pack(fill="x", padx=16, pady=(14, 4))
-
-        self._tab_values = [f"{ico}  {lbl}" for _id, lbl, ico in TABS]
-        self._tab_by_value = {f"{ico}  {lbl}": _id for _id, lbl, ico in TABS}
-        self._value_by_tab = {_id: f"{ico}  {lbl}" for _id, lbl, ico in TABS}
-
-        self._tab_seg = ctk.CTkSegmentedButton(
-            row,
-            values=self._tab_values,
-            command=self._on_tab_change,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=40,
-            fg_color="#94a3b8",
-            selected_color=self.HEADER_BG,      # navy — activo
-            selected_hover_color="#2b517a",
-            unselected_color="#64748b",          # slate — inactivo
-            unselected_hover_color="#475569",
-            text_color="#ffffff",                # blanco: legible en ambos estados
-        )
-        self._tab_seg.pack(fill="x")
-        self._tab_seg.set(self._value_by_tab[self._tab])
-
-    def _on_tab_change(self, value: str):
-        self._tab = self._tab_by_value.get(value, self._tab)
+            if resp is None:
+                return
+            if resp:
+                self._stop_proc()
+        if self._poll_job:
+            try:
+                self.after_cancel(self._poll_job)
+            except Exception:
+                pass
         self._save_state()
-        self._refresh_modules()
+        self.destroy()
 
-    # ------------------------------------------------------------------
-    def _build_project_bar(self):
-        """Barra de proyecto activo — selector único para todo el menú."""
-        bar = ctk.CTkFrame(self, fg_color=self.SECTION_BG, corner_radius=8)
-        bar.pack(fill="x", padx=16, pady=(0, 6))
 
-        # Icono + etiqueta fija
-        ctk.CTkLabel(
-            bar, text="📁",
-            font=ctk.CTkFont(size=14),
-        ).pack(side="left", padx=(10, 2), pady=7)
-
-        ctk.CTkLabel(
-            bar, text="Proyecto activo:",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=self.SECTION_TXT,
-        ).pack(side="left", padx=(0, 8))
-
-        # Botón cambiar (derecha)
-        ctk.CTkButton(
-            bar,
-            text="Cambiar proyecto",
-            command=self._select_project,
-            width=148, height=28,
-            font=ctk.CTkFont(size=11),
-            fg_color=self.ACCENT,
-            hover_color="#1d4ed8",
-            corner_radius=6,
-        ).pack(side="right", padx=10, pady=6)
-
-        # Nombre + detalle (centro, se actualizan)
-        info = ctk.CTkFrame(bar, fg_color="transparent")
-        info.pack(side="left", fill="x", expand=True)
-
-        self._project_label = ctk.CTkLabel(
-            info,
-            text="— ninguno seleccionado —",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=self.TEXT, anchor="w",
-        )
-        self._project_label.pack(anchor="w")
-
-        self._project_detail = ctk.CTkLabel(
-            info,
-            text='Pulsa "Cambiar proyecto" para seleccionar',
-            font=ctk.CTkFont(size=9),
-            text_color=self.SUBTITLE, anchor="w",
-        )
-        self._project_detail.pack(anchor="w")
-
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Nivel 2 — módulos (fila horizontal con scroll si no caben)
-    # ------------------------------------------------------------------
-    def _build_modules_row(self):
-        outer = ctk.CTkFrame(self, fg_color=self.BG)
-        outer.pack(fill="x", padx=16, pady=(6, 2))
-
-        ctk.CTkLabel(
-            outer, text="Módulos",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            text_color=self.SUBTITLE, anchor="w",
-        ).pack(anchor="w", pady=(0, 2))
-
-        self._modules_scroll = ctk.CTkScrollableFrame(
-            outer, fg_color=self.SECTION_BG, corner_radius=8,
-            orientation="horizontal", height=58,
-        )
-        self._modules_scroll.pack(fill="x")
-
-        self._module_buttons = {}
-        for mod in MODULES:
-            has_multi = len(self._module_actions(mod)) > 1
-            caret = "  ▾" if has_multi else ""
-            btn = ctk.CTkButton(
-                self._modules_scroll,
-                text=f"{mod['icon']}  {mod['label']}{caret}",
-                command=lambda mid=mod["id"]: self._select_module(mid),
-                width=150, height=40,
-                font=ctk.CTkFont(size=12, weight="bold"),
-                fg_color=self.CARD_BG, hover_color=self.CARD_HOVER,
-                text_color=self.TEXT, corner_radius=8,
-                border_width=1, border_color=self.CARD_BORDER,
-            )
-            btn.pack(side="left", padx=4, pady=8)
-            self._module_buttons[mod["id"]] = btn
-
-    # ------------------------------------------------------------------
-    # Nivel 3 — acciones del módulo activo (solo si hay más de una)
-    # ------------------------------------------------------------------
-    def _build_actions_row(self):
-        # height=1 + pack_propagate: colapsa cuando no hay acciones (módulo de una
-        # sola acción) y crece automáticamente al añadir botones de nivel 3.
-        self._actions_frame = ctk.CTkFrame(self, fg_color=self.BG, height=1)
-        self._actions_frame.pack(fill="x", padx=16, pady=(4, 2))
-        # Su contenido se reconstruye en _refresh_actions().
-
-    # ------------------------------------------------------------------
-    # Panel central — breadcrumb + descripción + estado + Ejecutar
-    # ------------------------------------------------------------------
-    def _build_action_panel(self):
-        panel = ctk.CTkFrame(self, fg_color=self.CARD_BG, corner_radius=12,
-                             border_width=1, border_color=self.CARD_BORDER)
-        panel.pack(fill="both", expand=True, padx=16, pady=(6, 4))
-
-        self._breadcrumb = ctk.CTkLabel(
-            panel, text="",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=self.ACCENT, anchor="w",
-        )
-        self._breadcrumb.pack(anchor="w", padx=20, pady=(16, 2))
-
-        self._panel_title = ctk.CTkLabel(
-            panel, text="",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=self.TEXT, anchor="w",
-        )
-        self._panel_title.pack(anchor="w", padx=20, pady=(2, 2))
-
-        self._panel_help = ctk.CTkLabel(
-            panel, text="",
-            font=ctk.CTkFont(size=12),
-            text_color=self.SUBTITLE, anchor="w",
-            justify="left", wraplength=820,
-        )
-        self._panel_help.pack(anchor="w", padx=20, pady=(0, 10))
-
-        self._panel_file = ctk.CTkLabel(
-            panel, text="",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            anchor="w", justify="left", wraplength=820,
-        )
-        self._panel_file.pack(anchor="w", padx=20, pady=(0, 12))
-
-        self._run_btn = ctk.CTkButton(
-            panel, text="▶  Ejecutar",
-            command=self._run_current_action,
-            width=200, height=46,
-            font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color=self.ACCENT, hover_color="#1d4ed8",
-            corner_radius=10,
-        )
-        self._run_btn.pack(anchor="w", padx=20, pady=(0, 18))
-
-    # ------------------------------------------------------------------
-    # Lógica de navegación
-    # ------------------------------------------------------------------
-    def _module_by_id(self, mid: str) -> dict:
-        return next(m for m in MODULES if m["id"] == mid)
-
-    def _module_actions(self, mod: dict) -> list[dict]:
-        """Acciones de un módulo, resolviendo per_tab según la pestaña activa."""
-        if "per_tab" in mod:
-            return [mod["per_tab"][self._tab]]
-        return mod["actions"]
-
-    def _current_module(self) -> dict:
-        return self._module_by_id(self._module_id)
-
-    def _current_action(self) -> dict:
-        actions = self._module_actions(self._current_module())
-        idx = min(self._action_idx, len(actions) - 1)
-        return actions[idx]
-
-    def _refresh_modules(self):
-        """Resalta el módulo activo y refresca acciones del que cambia con la pestaña."""
-        for mid, btn in self._module_buttons.items():
-            mod = self._module_by_id(mid)
-            active = (mid == self._module_id)
-            # El módulo "captura" cambia de etiqueta según la pestaña
-            if "per_tab" in mod:
-                act = mod["per_tab"][self._tab]
-                btn.configure(text=f"{mod['icon']}  {mod['label']}")
-            btn.configure(
-                fg_color=self.HEADER_BG if active else self.CARD_BG,
-                text_color="#ffffff" if active else self.TEXT,
-                border_color=self.ACCENT if active else self.CARD_BORDER,
-            )
-        self._refresh_actions()
-
-    def _select_module(self, mid: str):
-        self._module_id = mid
-        self._action_idx = 0
-        self._save_state()
-        self._refresh_modules()
-
-    def _refresh_actions(self):
-        """Reconstruye la fila de nivel 3 según el módulo activo."""
-        for w in self._actions_frame.winfo_children():
-            w.destroy()
-        self._action_buttons = []
-
-        actions = self._module_actions(self._current_module())
-        if len(actions) > 1:
-            ctk.CTkLabel(
-                self._actions_frame, text="Acciones",
-                font=ctk.CTkFont(size=10, weight="bold"),
-                text_color=self.SUBTITLE,
-            ).pack(side="left", padx=(0, 8))
-            for idx, act in enumerate(actions):
-                active = (idx == min(self._action_idx, len(actions) - 1))
-                b = ctk.CTkButton(
-                    self._actions_frame,
-                    text=f"{act['icon']}  {act['label']}",
-                    command=lambda i=idx: self._select_action(i),
-                    width=170, height=34,
-                    font=ctk.CTkFont(size=12,
-                                     weight="bold" if active else "normal"),
-                    fg_color=self.ACCENT if active else self.CARD_BG,
-                    hover_color="#1d4ed8" if active else self.CARD_HOVER,
-                    text_color="#ffffff" if active else self.TEXT,
-                    border_width=0 if active else 1,
-                    border_color=self.CARD_BORDER, corner_radius=8,
-                )
-                b.pack(side="left", padx=4)
-                self._action_buttons.append(b)
-        self._refresh_panel()
-
-    def _select_action(self, idx: int):
-        self._action_idx = idx
-        self._refresh_actions()
-
-    def _refresh_panel(self):
-        """Actualiza breadcrumb, descripción, estado del CSV y botón Ejecutar."""
-        mod = self._current_module()
-        act = self._current_action()
-        tab_label = dict((t[0], t[1]) for t in TABS)[self._tab]
-
-        crumb = f"{tab_label}  ›  {mod['label']}"
-        if len(self._module_actions(mod)) > 1:
-            crumb += f"  ›  {act['label']}"
-        self._breadcrumb.configure(text=crumb)
-        self._panel_title.configure(text=f"{act['icon']}  {act['label']}")
-        self._panel_help.configure(text=act.get("help", ""))
-
-        # Estado del archivo requerido
-        file_key = act.get("file_key")
-        ready = True
-        if file_key:
-            path = self._resolve(file_key)
-            if path:
-                self._panel_file.configure(
-                    text=f"✓ Archivo listo: {os.path.basename(path)}",
-                    text_color=self.OK_COLOR,
-                )
-            elif self._active_project:
-                ready = False
-                self._panel_file.configure(
-                    text=f"⚠ Falta el archivo requerido — {self._file_hint(file_key)}",
-                    text_color=self.WARN_COLOR,
-                )
-            else:
-                self._panel_file.configure(
-                    text="ℹ Sin proyecto activo: el script abrirá su propio selector de archivo.",
-                    text_color=self.SUBTITLE,
-                )
-        else:
-            self._panel_file.configure(
-                text="ℹ Esta acción no necesita un proyecto seleccionado.",
-                text_color=self.SUBTITLE,
-            )
-
-        self._run_btn.configure(
-            state="normal" if ready else "disabled",
-            fg_color=self.ACCENT if ready else "#cbd5e1",
-        )
-
-    @staticmethod
-    def _file_hint(file_key: str) -> str:
-        return {
-            "videos":    "ejecuta primero la Captura (perfil o hashtag).",
-            "comments":  "ejecuta primero «Comentarios → Extraer comentarios».",
-            "sentiment": "ejecuta primero «Sentimiento IA → Analizar sentimiento».",
-            "enriched":  "ejecuta primero «Edad de cuentas → Calcular edades».",
-        }.get(file_key, "ejecuta el paso previo del flujo.")
-
-    def _run_current_action(self):
-        self._run_action(self._current_action())
-
-    def _run_action(self, act: dict):
-        if act.get("run") == "informe":
-            generar_informe(status_cb=self._status,
-                            csv_videos_preset=self._resolve("videos"))
-            return
-        if act.get("file_key"):
-            self._run_for_project(act["script"], act["file_key"])
-        else:
-            run_script(act["script"], status_cb=self._status)
-
-    # ------------------------------------------------------------------
-    def _build_footer(self):
-        foot = ctk.CTkFrame(self, fg_color=self.BG)
-        foot.pack(side="bottom", fill="x", padx=16, pady=(4, 12))
-
-        self._status_var = ctk.StringVar(value="Listo. Selecciona un proyecto y una opción.")
-        ctk.CTkLabel(
-            foot,
-            textvariable=self._status_var,
-            font=ctk.CTkFont(size=11),
-            text_color=self.STATUS_TXT,
-            anchor="w",
-        ).pack(side="left", fill="x", expand=True)
-
-        ctk.CTkButton(
-            foot,
-            text="❌  Salir",
-            width=110, height=34,
-            fg_color=self.EXIT_BG,
-            hover_color=self.EXIT_HOVER,
-            text_color=self.EXIT_TXT,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            corner_radius=8,
-            command=self.destroy,
-        ).pack(side="right")
-
-    # ------------------------------------------------------------------
-    # Gestión del proyecto activo
-    # ------------------------------------------------------------------
-
-    def _scan_project_files(self, folder: str) -> dict[str, str]:
-        """Clasifica los CSV de un proyecto por tipo.
-
-        Orden de prioridad (más específico primero para evitar falsos positivos):
-          enriched   — *enriquecido_fechas_creacion*.csv
-          sentiment  — *con_sentimiento*.csv
-          comments   — *comentarios_api*.csv  (excluye lookup/enriquecido/sentimiento)
-          videos     — *videos_api*.csv        (excluye comentarios)
-        Los archivos _lookup_fechas_creacion y _checkpoint se ignoran.
-        """
-        result = {}
-        try:
-            for f in sorted(os.listdir(folder)):
-                if not f.endswith(".csv"):
-                    continue
-                p  = os.path.join(folder, f)
-                nl = f.lower()
-                # Archivos internos/auxiliares — ignorar
-                if "lookup_fechas_creacion" in nl or "_checkpoint" in nl:
-                    continue
-                if "enriquecido_fechas_creacion" in nl:
-                    result["enriched"] = p
-                elif "con_sentimiento" in nl:
-                    result["sentiment"] = p
-                elif "comentarios_api" in nl:
-                    result["comments"] = p
-                elif "videos_api" in nl and "comentarios" not in nl:
-                    result["videos"] = p
-        except OSError:
-            pass
-        return result
-
-    def _set_project(self, folder: str):
-        """Establece el proyecto activo y refresca la barra."""
-        self._active_project = folder
-        self._project_files  = self._scan_project_files(folder)
-        name = os.path.basename(folder)
-        self._project_label.configure(text=name)
-
-        # Indicadores de qué pasos están completados
-        icons = []
-        if "videos"    in self._project_files: icons.append("📹 vídeos")
-        if "comments"  in self._project_files: icons.append("💬 comentarios")
-        if "sentiment" in self._project_files: icons.append("🤖 sentimiento")
-        if "enriched"  in self._project_files: icons.append("📅 edad cuentas")
-        detail = "  ·  ".join(icons) if icons else "sin archivos reconocidos"
-        self._project_detail.configure(text=detail)
-        self._status(f"📁 Proyecto activo: {name}  ({len(self._project_files)} archivos)")
-        # Refrescar el panel para actualizar el estado del archivo requerido
-        if hasattr(self, "_run_btn"):
-            self._refresh_panel()
-
-    def _select_project(self):
-        """Muestra diálogo para elegir proyecto de data/ o carpeta manual."""
-        data_dir = os.path.join(_project_root(), "data")
-
-        # Obtener lista de proyectos (subcarpetas de data/)
-        try:
-            proyectos = sorted([
-                d for d in os.listdir(data_dir)
-                if os.path.isdir(os.path.join(data_dir, d))
-            ])
-        except OSError:
-            proyectos = []
-
-        if not proyectos:
-            # Sin proyectos en data/ → abrir selector de carpeta
-            self._pick_folder_manually(data_dir)
-            return
-
-        # Diálogo CTK con lista de proyectos
-        dlg = ctk.CTkToplevel(self)
-        dlg.title("Seleccionar proyecto")
-        dlg.geometry("500x360")
-        dlg.resizable(False, False)
-        dlg.grab_set()
-        dlg.attributes("-topmost", True)
-        dlg.configure(fg_color=self.BG)
-
-        ctk.CTkLabel(
-            dlg, text="Elige el proyecto sobre el que quieres trabajar:",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.TEXT,
-        ).pack(padx=20, pady=(16, 6), anchor="w")
-
-        # Lista scrollable con radio buttons
-        scroll = ctk.CTkScrollableFrame(dlg, fg_color=self.CARD_BG,
-                                        corner_radius=8, height=200)
-        scroll.pack(fill="x", padx=20, pady=4)
-
-        # Preseleccionar el activo si ya hay uno
-        current_name = os.path.basename(self._active_project) if self._active_project else ""
-        default = current_name if current_name in proyectos else proyectos[0]
-        selected = ctk.StringVar(value=default)
-
-        for p in proyectos:
-            folder = os.path.join(data_dir, p)
-            files  = self._scan_project_files(folder)
-            icons  = ""
-            icons += "📹" if "videos"    in files else "○ "
-            icons += " 💬" if "comments" in files else " ○"
-            icons += " 🤖" if "sentiment"in files else " ○"
-            icons += " 📅" if "enriched" in files else " ○"
-            ctk.CTkRadioButton(
-                scroll,
-                text=f" {icons}   {p}",
-                variable=selected, value=p,
-                font=ctk.CTkFont(size=11),
-                text_color=self.TEXT,
-            ).pack(anchor="w", pady=3, padx=8)
-
-        # Leyenda
-        ctk.CTkLabel(
-            dlg,
-            text="📹 vídeos  💬 comentarios  🤖 sentimiento  📅 edad de cuentas  ·  ○ = pendiente",
-            font=ctk.CTkFont(size=9),
-            text_color=self.SUBTITLE,
-        ).pack(pady=(4, 2))
-
-        # Botones
-        btn_row = ctk.CTkFrame(dlg, fg_color="transparent")
-        btn_row.pack(fill="x", padx=20, pady=(6, 16))
-
-        def _confirm():
-            name = selected.get()
-            if name:
-                self._set_project(os.path.join(data_dir, name))
-            dlg.destroy()
-
-        def _manual():
-            dlg.destroy()
-            self._pick_folder_manually(data_dir)
-
-        ctk.CTkButton(
-            btn_row, text="Aceptar", command=_confirm,
-            width=120, fg_color=self.ACCENT, hover_color="#1d4ed8",
-        ).pack(side="right", padx=(4, 0))
-
-        ctk.CTkButton(
-            btn_row, text="Carpeta manual…", command=_manual,
-            width=150, fg_color="transparent", border_width=1,
-            text_color=self.TEXT, hover_color=self.CARD_HOVER,
-        ).pack(side="right", padx=4)
-
-        ctk.CTkButton(
-            btn_row, text="Cancelar", command=dlg.destroy,
-            width=100, fg_color="transparent", border_width=1,
-            text_color=self.SUBTITLE, hover_color=self.CARD_HOVER,
-        ).pack(side="left")
-
-    def _pick_folder_manually(self, initial_dir: str):
-        """Selector nativo de carpeta como fallback."""
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        folder = filedialog.askdirectory(
-            title="Selecciona la carpeta del proyecto",
-            initialdir=initial_dir if os.path.exists(initial_dir) else _project_root(),
-        )
-        root.destroy()
-        if folder:
-            self._set_project(folder)
-
-    def _resolve(self, key: str) -> str | None:
-        """Devuelve la ruta del archivo del tipo indicado, o None."""
-        return self._project_files.get(key)
-
-    def _run_for_project(self, script: str, file_key: str,
-                         extra_args: list | None = None):
-        """Ejecuta un script. Si hay proyecto activo pasa el archivo como arg.
-        Si no hay proyecto, el script abre su propio selector de archivo."""
-        if not self._active_project:
-            # Sin proyecto → el script abre su filedialog propio
-            run_script(script, extra_args=extra_args, status_cb=self._status)
-            return
-
-        path = self._resolve(file_key)
-        if not path:
-            _nombres = {
-                "videos":    "CSV de vídeos (_videos_api.csv) — ejecuta el paso 1 o 2 primero",
-                "comments":  "CSV de comentarios (_comentarios_api.csv) — ejecuta el paso 3 primero",
-                "sentiment": "CSV con sentimiento — ejecuta el paso 7 (Sentimiento con IA) primero",
-                "enriched":  "CSV enriquecido — ejecuta el paso 4 (Edad de Cuentas) primero",
-            }
-            self._status(f"⚠️  No encontrado: {_nombres.get(file_key, file_key)}")
-            return
-
-        args = [path] + (extra_args or [])
-        run_script(script, extra_args=args, status_cb=self._status)
-
-    # ------------------------------------------------------------------
-    # Helpers de construcción de UI
-    # ------------------------------------------------------------------
-
-    def _status(self, msg: str):
-        self.after(0, self._status_var.set, msg)
-
-
-# ---------------------------------------------------------------------------
-# Entry point
 # ---------------------------------------------------------------------------
 
 def main():
-    app = MenuApp()
-    app.mainloop()
+    MenuApp().mainloop()
 
 
 if __name__ == "__main__":

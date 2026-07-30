@@ -26,6 +26,8 @@ from tiktok_utils import (
     extract_video_id_from_url, is_valid_video_url, parse_count,
     human_scroll, accept_cookies_banner, handle_verification,
     load_cookies, save_cookies, ensure_context as _ensure_context_base,
+    resolve_cookies_path,
+    ask_or_arg,
 )
 
 try:
@@ -44,7 +46,7 @@ import sys as _sys
 _sys.path.insert(0, BASE_DIR)
 from config.rutas import dataset_dir
 
-COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
+COOKIES_PATH = resolve_cookies_path(BASE_DIR)  # SEC-01: secrets/, no data/
 PROFILE_DIR = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 
 HEADLESS = False
@@ -393,13 +395,13 @@ async def main():
     print("Extrae todos los videos de una cuenta")
     print("=" * 60)
     
-    username = input("\n👤 Usuario (sin @): ").strip().lstrip("@")
+    username = ask_or_arg("--user", "\n👤 Usuario (sin @): ").lstrip("@")
     if not username:
         print("❌ Debes introducir un usuario")
         return
-    
-    start_str = input("📅 Fecha inicio (dd-mm-aaaa) o Enter para todas: ").strip()
-    end_str = input("📅 Fecha fin (dd-mm-aaaa) o Enter para todas: ").strip()
+
+    start_str = ask_or_arg("--desde", "📅 Fecha inicio (dd-mm-aaaa) o Enter para todas: ")
+    end_str = ask_or_arg("--hasta", "📅 Fecha fin (dd-mm-aaaa) o Enter para todas: ")
     
     def parse_date(s):
         try:
