@@ -184,7 +184,7 @@ python menu.py
 
 Se abrirá una ventana con el flujo completo en una barra lateral única:
 
-- **Cabecera**: tema claro/oscuro y accesos a las carpetas del proyecto y de resultados.
+- **Cabecera**: crear un proyecto nuevo, abrir la carpeta de resultados y tema claro/oscuro.
 - **Barra de proyecto**: proyecto activo y chips que indican qué datos ya tiene
   (📹 vídeos · 💬 comentarios · 🤖 sentimiento · 📅 edad de cuentas).
 - **Barra lateral**: los 12 pasos agrupados en 4 fases, cada uno con su estado:
@@ -198,8 +198,11 @@ Se abrirá una ventana con el flujo completo en una barra lateral única:
   se mantiene desactivado y explica qué falta hasta que los datos son válidos.
   Lo último que buscaste se recuerda entre sesiones.
 
-Cada script se abre en su propia ventana de consola, porque algunos siguen
-siendo interactivos (por ejemplo, el análisis de sentimiento pregunta el proveedor).
+**La salida de los scripts se ve dentro del programa**, en directo, en el panel
+Actividad. Solo dos pasos abren una consola aparte, porque leen del teclado y
+una tubería los dejaría bloqueados sin que se viera la pregunta: la captura de
+cookies (espera a que inicies sesión) y el análisis de sentimiento (te hace
+elegir proveedor de IA).
 
 Atajos: `Ctrl+O` cambiar proyecto · `Ctrl+R` ejecutar · `Esc` detener.
 

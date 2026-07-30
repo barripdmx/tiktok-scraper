@@ -30,6 +30,8 @@ import os
 import sys
 import json
 import time
+import queue
+import threading
 import subprocess
 from datetime import datetime
 
@@ -74,6 +76,13 @@ def _f(size=12, weight="normal"):
 #   produces  clave de archivo que el paso genera (sirve para marcarlo ✓)
 #   arg_key   clave cuyo path se pasa como argv[1] al script
 #   inputs    campos que el menú pide y pasa al script como flags
+#   console   True si el script necesita teclado propio (ver nota abajo)
+#
+# Salida de los scripts: por defecto se captura y se muestra en el panel
+# "Actividad" en directo. Solo dos pasos abren una consola aparte, porque leen
+# del teclado y una tubería los dejaría bloqueados sin que se vea el prompt:
+# la captura de cookies (espera a que inicies sesión) y el análisis de
+# sentimiento (te hace elegir proveedor de IA).
 # ---------------------------------------------------------------------------
 
 def F(flag, label, placeholder, *, required=False, kind="text", hint=""):
@@ -93,7 +102,7 @@ ACTIONS = [
     dict(
         id="cookies", group="setup", icon="🔑", label="Sesión de TikTok",
         script="src/scrapers/1-guardar_sesion.py",
-        requires=[], produces=None, arg_key=None,
+        requires=[], produces=None, arg_key=None, console=True,
         help="Abre un navegador para que inicies sesión en TikTok y guarda las "
              "cookies en secrets/. Es el paso 0: sin sesión válida los scrapers "
              "obtienen resultados incompletos o vacíos.",
@@ -148,7 +157,7 @@ ACTIONS = [
     dict(
         id="sentimiento", group="analisis", icon="🤖", label="Sentimiento IA",
         script="src/analysis/analizar_sentimiento.py",
-        requires=["comments"], produces="sentiment", arg_key="comments",
+        requires=["comments"], produces="sentiment", arg_key="comments", console=True,
         help="Clasifica cada comentario con IA. El script te dejará elegir el "
              "proveedor: RoBERTa (local), Groq o Mistral. Groq y Mistral añaden "
              "sesgo, arquetipo, intención y pain points; RoBERTa solo sentimiento.",
@@ -400,6 +409,11 @@ class MenuApp(ctk.CTk):
         self._poll_job = None
         self._stopping = False   # parada pedida por el usuario, no un fallo
 
+        # La salida del script la lee un hilo y la deja en esta cola; la UI la
+        # vacía en su propio ciclo. El hilo nunca toca widgets.
+        self._logq: queue.Queue[str] = queue.Queue()
+        self._reader: threading.Thread | None = None
+
         # Navegación
         self._current_id: str = ACTIONS[0]["id"]
         self._rows: dict[str, dict] = {}   # id → widgets de la fila lateral
@@ -454,10 +468,10 @@ class MenuApp(ctk.CTk):
 
         self._theme_btn = util("🌙  Oscuro", self._toggle_theme,
                                "Alternar tema claro / oscuro", 112)
-        util("🗂️  Proyecto", lambda: self._open(_project_root()),
-             "Abrir la carpeta raíz del proyecto en el explorador")
         util("📂  Outputs", lambda: self._open(os.path.join(_project_root(), "outputs")),
              "Abrir la carpeta de resultados generados")
+        util("➕  Nuevo proyecto", self._new_project,
+             "Crear una carpeta de proyecto en data/ y dejarla activa", 158)
 
     def _toggle_theme(self):
         dark = ctk.get_appearance_mode() == "Dark"
@@ -653,9 +667,13 @@ class MenuApp(ctk.CTk):
         head.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         ctk.CTkLabel(head, text="ACTIVIDAD", font=_f(9, "bold"),
                      text_color=MUTED).pack(side="left")
-        ctk.CTkLabel(head,
-                     text="cada script se ejecuta en su propia ventana de consola",
-                     font=_f(9), text_color=MUTED).pack(side="left", padx=8)
+        self._log_mode = ctk.CTkLabel(head, text="", font=_f(9), text_color=MUTED)
+        self._log_mode.pack(side="left", padx=8)
+
+        ctk.CTkButton(head, text="Limpiar", command=self._clear_log,
+                      width=68, height=22, font=_f(10), corner_radius=6,
+                      fg_color="transparent", border_width=1, border_color=BORDER,
+                      text_color=MUTED, hover_color=SURFACE_ALT).pack(side="right")
 
         self._log = ctk.CTkTextbox(logbox, font=ctk.CTkFont(family="Consolas", size=11),
                                    fg_color=SURFACE_ALT, text_color=TEXT,
@@ -734,6 +752,9 @@ class MenuApp(ctk.CTk):
         self._help.configure(text=act["help"])
         self._render_inputs(act)
         self._render_requirements(act)
+        self._log_mode.configure(
+            text="este paso abre una consola aparte porque te pide datos por teclado"
+            if act.get("console") else "la salida del script se muestra aquí en directo")
         self._refresh_buttons()
 
     # ------------------------------------------------------------------
@@ -748,8 +769,11 @@ class MenuApp(ctk.CTk):
 
         specs = act.get("inputs") or []
         if not specs:
-            self._inputs_holder.grid_configure(pady=0)
+            # grid_remove y no solo pady=0: un CTkFrame vacío conserva su
+            # altura por defecto y dejaba un hueco muerto en el panel.
+            self._inputs_holder.grid_remove()
             return
+        self._inputs_holder.grid()
         self._inputs_holder.grid_configure(pady=(0, 14))
 
         store = self._input_values.setdefault(act["id"], {})
@@ -905,10 +929,48 @@ class MenuApp(ctk.CTk):
     # Registro de actividad
     # ==================================================================
 
+    MAX_LOG_LINES = 3000   # recorta el principio para no crecer sin límite
+
     def _log_line(self, text: str):
+        self._append(f"{datetime.now():%H:%M:%S}  {text}")
+
+    def _append(self, *lines: str):
         self._log.configure(state="normal")
-        self._log.insert("end", f"{datetime.now():%H:%M:%S}  {text}\n")
+        for line in lines:
+            self._log.insert("end", line + "\n")
+        total = int(self._log.index("end-1c").split(".")[0])
+        if total > self.MAX_LOG_LINES:
+            self._log.delete("1.0", f"{total - self.MAX_LOG_LINES}.0")
         self._log.see("end")
+        self._log.configure(state="disabled")
+
+    def _read_output(self, proc):
+        """Hilo lector: vuelca la salida del script en la cola, línea a línea."""
+        try:
+            for line in proc.stdout:
+                self._logq.put(line.rstrip("\r\n"))
+        except Exception:
+            pass
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+    def _drain_log(self):
+        """Pasa a la caja de texto lo que el hilo lector haya acumulado."""
+        pendientes = []
+        try:
+            while True:
+                pendientes.append(self._logq.get_nowait())
+        except queue.Empty:
+            pass
+        if pendientes:
+            self._append(*pendientes)
+
+    def _clear_log(self):
+        self._log.configure(state="normal")
+        self._log.delete("1.0", "end")
         self._log.configure(state="disabled")
 
     def _status(self, msg: str):
@@ -941,11 +1003,13 @@ class MenuApp(ctk.CTk):
             return
 
         cmd = [sys.executable, script]
+        arg_path = None
         arg_key = act.get("arg_key")
         if arg_key and self._project:
             path = self._files.get(arg_key)
             if path:
                 cmd.append(path)
+                arg_path = path
 
         # Parámetros recogidos en el panel. --no-prompt evita que el script
         # vuelva a preguntar por consola los campos que se hayan dejado vacíos.
@@ -958,10 +1022,31 @@ class MenuApp(ctk.CTk):
                     cmd += [spec["flag"], value]
             cmd.append("--no-prompt")
 
-        # Ventana de consola propia: varios scripts son interactivos y
-        # necesitan stdin real (elección de proveedor de IA, nº de vídeos…).
-        kwargs = {}
-        if os.name == "nt":
+        capture = not act.get("console")
+        kwargs: dict = {}
+
+        if capture:
+            # -u y PYTHONUNBUFFERED: sin ellos Python bufferiza al escribir a
+            # una tubería y el log llegaría a golpes al terminar, no en directo.
+            cmd.insert(1, "-u")
+            env = os.environ.copy()
+            env["PYTHONUNBUFFERED"] = "1"
+            env["PYTHONIOENCODING"] = "utf-8"
+            # stdin como tubería que se cierra acto seguido, NO DEVNULL: en
+            # Windows el dispositivo NUL se reporta como terminal, así que
+            # sys.stdin.isatty() daría True, los scripts entrarían en sus
+            # input() de cortesía y morirían con EOFError y código 1 pese a
+            # haber terminado bien. Con una tubería cerrada isatty() es False
+            # y esas ramas se saltan, que es justo lo que buscamos.
+            kwargs.update(
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, env=env,
+            )
+            if os.name == "nt":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        elif os.name == "nt":
+            # Consola propia: el script lee del teclado.
             kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
 
         try:
@@ -971,11 +1056,18 @@ class MenuApp(ctk.CTk):
             self._status("Error al lanzar el proceso.")
             return
 
+        if capture:
+            if self._proc.stdin:
+                self._proc.stdin.close()
+            self._reader = threading.Thread(target=self._read_output,
+                                            args=(self._proc,), daemon=True)
+            self._reader.start()
+
         self._proc_action = act
         self._t0 = time.time()
         self._save_state()
         self._log_line(f"▶ {act['label']} — {os.path.basename(act['script'])}"
-                       + (f"  ←  {os.path.basename(cmd[2])}" if len(cmd) > 2 else ""))
+                       + (f"  ←  {os.path.basename(arg_path)}" if arg_path else ""))
         self._status(f"Ejecutando «{act['label']}» en una ventana de consola aparte.")
         self._refresh_rows()
         self._refresh_buttons()
@@ -984,15 +1076,22 @@ class MenuApp(ctk.CTk):
     def _poll(self):
         if self._proc is None:
             return
+        self._drain_log()
         rc = self._proc.poll()
         if rc is None:
             elapsed = int(time.time() - self._t0)
             self._timer.configure(text=f"⏱  {elapsed // 60:02d}:{elapsed % 60:02d}")
-            self._poll_job = self.after(400, self._poll)
+            self._poll_job = self.after(200, self._poll)
             return
         self._on_finished(rc)
 
     def _on_finished(self, rc: int):
+        # El lector puede llevar líneas en vuelo cuando el proceso ya ha salido.
+        if self._reader is not None:
+            self._reader.join(timeout=2)
+            self._reader = None
+        self._drain_log()
+
         act = self._proc_action
         elapsed = int(time.time() - self._t0)
         dur = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
@@ -1084,6 +1183,117 @@ class MenuApp(ctk.CTk):
         self._status(f"Proyecto activo: {os.path.basename(folder)}")
         self._refresh_rows()
         self._refresh_detail()
+
+    # Caracteres que Windows no admite en un nombre de carpeta, y nombres
+    # reservados por el sistema que fallarían al crearla.
+    _INVALID_CHARS = '<>:"/\\|?*'
+    _RESERVED = {"con", "prn", "aux", "nul",
+                 *(f"com{i}" for i in range(1, 10)),
+                 *(f"lpt{i}" for i in range(1, 10))}
+
+    @classmethod
+    def _safe_name(cls, raw: str) -> str:
+        """Nombre de carpeta utilizable a partir de lo que escriba el usuario."""
+        name = raw.strip()
+        for ch in cls._INVALID_CHARS:
+            name = name.replace(ch, "")
+        name = "_".join(name.split())        # espacios → guiones bajos
+        return name.strip("._")
+
+    def _new_project(self):
+        """Crea una carpeta de proyecto en data/ y la deja activa."""
+        data_dir = os.path.join(_project_root(), "data")
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Nuevo proyecto")
+        dlg.geometry("560x360")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color=BG)
+        dlg.transient(self)
+        dlg.after(120, dlg.grab_set)
+
+        ctk.CTkLabel(dlg, text="Crear un proyecto nuevo", font=_f(16, "bold"),
+                     text_color=TEXT).pack(anchor="w", padx=24, pady=(22, 2))
+        ctk.CTkLabel(dlg, text="Una carpeta dentro de data/ para agrupar los CSV "
+                              "de una investigación.",
+                     font=_f(11), text_color=MUTED, justify="left", wraplength=500
+                     ).pack(anchor="w", padx=24, pady=(0, 14))
+
+        ctk.CTkLabel(dlg, text="Nombre", font=_f(11, "bold"), text_color=TEXT
+                     ).pack(anchor="w", padx=24, pady=(0, 3))
+        entry = ctk.CTkEntry(dlg, placeholder_text="therians_2024", height=38,
+                             font=_f(13), corner_radius=8, fg_color=SURFACE,
+                             border_color=BORDER, text_color=TEXT)
+        entry.pack(fill="x", padx=24)
+
+        preview = ctk.CTkLabel(dlg, text="", font=_f(11), text_color=MUTED,
+                               anchor="w", justify="left", wraplength=500)
+        preview.pack(anchor="w", padx=24, pady=(6, 0))
+
+        aviso = ctk.CTkFrame(dlg, fg_color=SURFACE_ALT, corner_radius=8)
+        aviso.pack(fill="x", padx=24, pady=(14, 0))
+        ctk.CTkLabel(aviso, text="Los pasos de captura crean su propia carpeta a partir "
+                                 "de la cuenta o los términos que busques (por ejemplo "
+                                 "user_vodafone_es). Esto sirve para organizar o para "
+                                 "traer CSV de fuera.",
+                     font=_f(10), text_color=MUTED, justify="left", wraplength=470
+                     ).pack(padx=12, pady=9)
+
+        # La fila de botones se crea antes que el botón para poder ser su padre:
+        # empaquetarlo con in_= en un contenedor posterior lo dejaba sin pintar.
+        row = ctk.CTkFrame(dlg, fg_color="transparent")
+        row.pack(fill="x", padx=24, pady=(18, 20), side="bottom")
+
+        crear_btn = ctk.CTkButton(row, text="Crear y activar", width=150, height=38,
+                                  font=_f(12, "bold"), corner_radius=8,
+                                  fg_color=ACCENT, hover_color=ACCENT_HOV)
+        crear_btn.pack(side="right")
+
+        # revisar() solo informa; nunca deshabilita el botón. Un botón apagado
+        # sin explicación es un callejón sin salida si el aviso en vivo falla,
+        # así que la validación de verdad ocurre al pulsar Crear.
+        def revisar(*_):
+            name = self._safe_name(entry.get())
+            if not name:
+                preview.configure(text="Escribe un nombre.", text_color=MUTED)
+                return None
+            if name.lower() in self._RESERVED:
+                preview.configure(text=f"«{name}» es un nombre reservado por Windows.",
+                                  text_color=WARN)
+                return None
+            if os.path.isdir(os.path.join(data_dir, name)):
+                preview.configure(text=f"Ya existe data/{name}/ — elige otro nombre.",
+                                  text_color=WARN)
+                return None
+            preview.configure(text=f"Se creará:  data/{name}/", text_color=OK)
+            return name
+
+        def crear():
+            name = revisar()
+            if not name:
+                return
+            folder = os.path.join(data_dir, name)
+            try:
+                os.makedirs(folder)
+            except OSError as exc:
+                preview.configure(text=f"No se pudo crear: {exc}", text_color=WARN)
+                return
+            dlg.destroy()
+            self._log_line(f"➕ Proyecto creado: data/{name}/")
+            self._set_project(folder)
+
+        crear_btn.configure(command=crear)
+        entry.bind("<KeyRelease>", revisar)
+        entry.bind("<Return>", lambda _e: crear())
+
+        ctk.CTkButton(row, text="Cancelar", command=dlg.destroy, width=110, height=38,
+                      font=_f(12), corner_radius=8, fg_color="transparent",
+                      border_width=1, border_color=BORDER, text_color=MUTED,
+                      hover_color=SURFACE_ALT).pack(side="left")
+
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        revisar()
+        dlg.after(220, entry.focus_set)
 
     def _select_project(self):
         data_dir = os.path.join(_project_root(), "data")
