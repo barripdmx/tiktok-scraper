@@ -184,7 +184,7 @@ python menu.py
 
 Se abrirá una ventana con el flujo completo en una barra lateral única:
 
-- **Cabecera**: crear un proyecto nuevo, abrir la carpeta de resultados y tema claro/oscuro.
+- **Cabecera**: empezar un proyecto nuevo, abrir la carpeta de resultados y tema claro/oscuro.
 - **Barra de proyecto**: proyecto activo y chips que indican qué datos ya tiene
   (📹 vídeos · 💬 comentarios · 🤖 sentimiento · 📅 edad de cuentas).
 - **Barra lateral**: los 12 pasos agrupados en 4 fases, cada uno con su estado:
@@ -197,6 +197,10 @@ Se abrirá una ventana con el flujo completo en una barra lateral única:
   y el rango de fechas **en el propio menú**, no en la consola. El botón Ejecutar
   se mantiene desactivado y explica qué falta hasta que los datos son válidos.
   Lo último que buscaste se recuerda entre sesiones.
+- **Nombre del proyecto**: lo decide el scraper a partir de lo que busques
+  (`policia` → `data/user_policia/`; `therians, otherkin` → `data/therians_otherkin/`).
+  El menú no crea carpetas por su cuenta: te enseña de antemano cuál va a salir
+  y avisa si vas a añadir datos a un proyecto que ya existe.
 
 **La salida de los scripts se ve dentro del programa**, en directo, en el panel
 Actividad. Solo dos pasos abren una consola aparte, porque leen del teclado y

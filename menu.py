@@ -17,16 +17,21 @@ Rediseño UX (v3). Cambios frente a la versión de navegación horizontal:
   · Un único root Tk: los diálogos cuelgan de la ventana principal.
   · Tema claro/oscuro nativo mediante colores en tupla (claro, oscuro).
 
-Nota de diseño: los scripts se lanzan en su propia ventana de consola porque
-varios son interactivos (piden proveedor de IA, nº de vídeos, rutas…). Por eso
-el panel "Actividad" registra eventos de ejecución, no la salida estándar:
-capturarla con una tubería bloquearía esos prompts.
+Nota de diseño: la salida de los scripts se captura y se muestra en directo en
+el panel "Actividad". Solo abren consola propia los dos pasos que leen del
+teclado (cookies y sentimiento), porque una tubería los dejaría bloqueados sin
+que se viera la pregunta.
+
+El nombre de cada proyecto lo decide el scraper a partir de la cuenta o de los
+términos de búsqueda; el menú no crea carpetas por su cuenta, solo enseña de
+antemano cuál va a salir.
 
 La navegación se genera a partir de GROUPS/ACTIONS; para añadir una opción
 basta con declarar un dict nuevo.
 """
 
 import os
+import csv
 import sys
 import json
 import time
@@ -111,7 +116,7 @@ ACTIONS = [
     dict(
         id="perfil", group="captura", icon="👤", label="Perfil de usuario",
         script="src/scrapers/1_tiktok_scraper_user.py",
-        requires=[], produces="videos", arg_key=None,
+        requires=[], produces="videos", arg_key=None, project_rule="user",
         help="Extrae todos los vídeos publicados por una cuenta de TikTok.",
         inputs=[
             F("--user", "Cuenta de TikTok", "sanchezcastejon", required=True,
@@ -123,7 +128,7 @@ ACTIONS = [
     dict(
         id="hashtag", group="captura", icon="#", label="Hashtag o búsqueda",
         script="src/scrapers/2_tiktok_scraper_hastag_api.py",
-        requires=[], produces="videos", arg_key=None,
+        requires=[], produces="videos", arg_key=None, project_rule="terms",
         help="Busca y extrae vídeos por hashtag o palabra clave mediante la API.",
         inputs=[
             F("--query", "Términos de búsqueda", "therians, otherkin", required=True,
@@ -421,7 +426,8 @@ class MenuApp(ctk.CTk):
         # Valores de los campos por acción: sobreviven a la navegación y a la
         # sesión, para no reescribir la búsqueda cada vez.
         self._input_values: dict[str, dict[str, str]] = {}
-        self._entries: dict[str, ctk.StringVar] = {}
+        self._entries: dict[str, ctk.CTkEntry] = {}
+        self._proj_preview: ctk.CTkLabel | None = None
 
         self._restore_state()
         self._build_ui()
@@ -471,7 +477,8 @@ class MenuApp(ctk.CTk):
         util("📂  Outputs", lambda: self._open(os.path.join(_project_root(), "outputs")),
              "Abrir la carpeta de resultados generados")
         util("➕  Nuevo proyecto", self._new_project,
-             "Crear una carpeta de proyecto en data/ y dejarla activa", 158)
+             "Empezar una captura nueva: el proyecto lo nombra el scraper "
+             "con la cuenta o los términos que busques", 158)
 
     def _toggle_theme(self):
         dark = ctk.get_appearance_mode() == "Dark"
@@ -767,6 +774,8 @@ class MenuApp(ctk.CTk):
             w.destroy()
         self._entries = {}
 
+        self._proj_preview = None
+
         specs = act.get("inputs") or []
         if not specs:
             # grid_remove y no solo pady=0: un CTkFrame vacío conserva su
@@ -834,6 +843,64 @@ class MenuApp(ctk.CTk):
                          font=_f(10), text_color=MUTED
                          ).pack(side="left", pady=(18, 0))
 
+        if act.get("project_rule"):
+            self._proj_preview = ctk.CTkLabel(
+                card, text="", font=_f(11, "bold"), text_color=MUTED,
+                anchor="w", justify="left", wraplength=540)
+            self._proj_preview.pack(anchor="w", padx=14, pady=(0, 11))
+
+    def _derived_project(self, act: dict) -> str | None:
+        """Carpeta que creará el scraper, replicando su regla de nombrado.
+
+        Perfil  → user_<cuenta>            (1_tiktok_scraper_user.save_results)
+        Hashtag → los 3 primeros términos unidos con «_», espacios incluidos
+                  (2_tiktok_scraper_hastag_api, variable `label`)
+        Si aquí y allí divergen, el menú mentiría sobre dónde acaban los datos.
+        """
+        rule = act.get("project_rule")
+        if not rule:
+            return None
+        store = self._collect_inputs(act)
+
+        if rule == "user":
+            cuenta = store.get("--user", "").strip().lstrip("@")
+            return f"user_{cuenta}" if cuenta else None
+
+        if rule == "terms":
+            crudo = store.get("--query", "").strip()
+            if not crudo:
+                return None
+            try:
+                terminos = next(csv.reader([crudo], skipinitialspace=True))
+                terminos = [t.strip() for t in terminos if t and t.strip()]
+            except Exception:
+                terminos = [t.strip() for t in crudo.split(",") if t.strip()]
+            if not terminos:
+                return None
+            return "_".join(t.replace(" ", "_") for t in terminos[:3])
+
+        return None
+
+    def _refresh_project_preview(self, act: dict):
+        """Anuncia en qué carpeta acabarán los datos antes de lanzar nada."""
+        if self._proj_preview is None:
+            return
+        nombre = self._derived_project(act)
+        if not nombre:
+            self._proj_preview.configure(
+                text="El proyecto se nombrará con lo que escribas arriba.",
+                text_color=MUTED)
+            return
+        existe = os.path.isdir(os.path.join(_project_root(), "data", nombre))
+        if existe:
+            self._proj_preview.configure(
+                text=f"↻  Se añadirá al proyecto existente:  data/{nombre}/",
+                text_color=WARN)
+        else:
+            self._proj_preview.configure(
+                text=f"✓  Se creará el proyecto:  data/{nombre}/",
+                text_color=OK)
+
     def _on_input_change(self, action_id: str, flag: str, entry):
         self._input_values.setdefault(action_id, {})[flag] = entry.get()
         self._refresh_buttons()
@@ -878,14 +945,20 @@ class MenuApp(ctk.CTk):
         for w in self._req_body.winfo_children():
             w.destroy()
 
+        # Sin dependencias no hay nada que comprobar: la tarjeta solo diría
+        # "no depende de nada" y roba altura al log, que en los pasos de
+        # captura es justo lo que interesa ver.
+        if not act["requires"]:
+            self._req_card.grid_remove()
+            return
+        self._req_card.grid()
+
         def line(text, color):
             ctk.CTkLabel(self._req_body, text=text, font=_f(11.5), text_color=color,
                          anchor="w", justify="left", wraplength=560
                          ).pack(anchor="w", pady=1)
 
-        if not act["requires"]:
-            line("✓  Este paso no depende de ningún archivo previo.", OK)
-        elif not self._project:
+        if not self._project:
             for key in act["requires"]:
                 label, _ = FILE_LABELS[key]
                 line(f"•  Necesita el {label}.", MUTED)
@@ -916,6 +989,7 @@ class MenuApp(ctk.CTk):
 
         # Motivo visible junto al botón cuando falta o falla un campo.
         self._hint.configure(text=pending or "", text_color=WARN)
+        self._refresh_project_preview(act)
 
         disabled = busy or blocked or pending is not None
         self._run_btn.configure(
@@ -1184,116 +1258,20 @@ class MenuApp(ctk.CTk):
         self._refresh_rows()
         self._refresh_detail()
 
-    # Caracteres que Windows no admite en un nombre de carpeta, y nombres
-    # reservados por el sistema que fallarían al crearla.
-    _INVALID_CHARS = '<>:"/\\|?*'
-    _RESERVED = {"con", "prn", "aux", "nul",
-                 *(f"com{i}" for i in range(1, 10)),
-                 *(f"lpt{i}" for i in range(1, 10))}
-
-    @classmethod
-    def _safe_name(cls, raw: str) -> str:
-        """Nombre de carpeta utilizable a partir de lo que escriba el usuario."""
-        name = raw.strip()
-        for ch in cls._INVALID_CHARS:
-            name = name.replace(ch, "")
-        name = "_".join(name.split())        # espacios → guiones bajos
-        return name.strip("._")
-
     def _new_project(self):
-        """Crea una carpeta de proyecto en data/ y la deja activa."""
-        data_dir = os.path.join(_project_root(), "data")
+        """Arranca un proyecto nuevo: lleva al paso de captura.
 
-        dlg = ctk.CTkToplevel(self)
-        dlg.title("Nuevo proyecto")
-        dlg.geometry("560x360")
-        dlg.resizable(False, False)
-        dlg.configure(fg_color=BG)
-        dlg.transient(self)
-        dlg.after(120, dlg.grab_set)
+        No se crea ninguna carpeta aquí. El nombre del proyecto lo decide el
+        scraper a partir de la cuenta o los términos de búsqueda, así que una
+        carpeta creada a mano se quedaría vacía para siempre.
+        """
+        self._select("perfil")
+        self._status("Elige el origen y escribe qué quieres capturar: "
+                     "la carpeta del proyecto se crea sola al ejecutar.")
+        entry = self._entries.get("--user")
+        if entry is not None:
+            self.after(80, entry.focus_set)
 
-        ctk.CTkLabel(dlg, text="Crear un proyecto nuevo", font=_f(16, "bold"),
-                     text_color=TEXT).pack(anchor="w", padx=24, pady=(22, 2))
-        ctk.CTkLabel(dlg, text="Una carpeta dentro de data/ para agrupar los CSV "
-                              "de una investigación.",
-                     font=_f(11), text_color=MUTED, justify="left", wraplength=500
-                     ).pack(anchor="w", padx=24, pady=(0, 14))
-
-        ctk.CTkLabel(dlg, text="Nombre", font=_f(11, "bold"), text_color=TEXT
-                     ).pack(anchor="w", padx=24, pady=(0, 3))
-        entry = ctk.CTkEntry(dlg, placeholder_text="therians_2024", height=38,
-                             font=_f(13), corner_radius=8, fg_color=SURFACE,
-                             border_color=BORDER, text_color=TEXT)
-        entry.pack(fill="x", padx=24)
-
-        preview = ctk.CTkLabel(dlg, text="", font=_f(11), text_color=MUTED,
-                               anchor="w", justify="left", wraplength=500)
-        preview.pack(anchor="w", padx=24, pady=(6, 0))
-
-        aviso = ctk.CTkFrame(dlg, fg_color=SURFACE_ALT, corner_radius=8)
-        aviso.pack(fill="x", padx=24, pady=(14, 0))
-        ctk.CTkLabel(aviso, text="Los pasos de captura crean su propia carpeta a partir "
-                                 "de la cuenta o los términos que busques (por ejemplo "
-                                 "user_vodafone_es). Esto sirve para organizar o para "
-                                 "traer CSV de fuera.",
-                     font=_f(10), text_color=MUTED, justify="left", wraplength=470
-                     ).pack(padx=12, pady=9)
-
-        # La fila de botones se crea antes que el botón para poder ser su padre:
-        # empaquetarlo con in_= en un contenedor posterior lo dejaba sin pintar.
-        row = ctk.CTkFrame(dlg, fg_color="transparent")
-        row.pack(fill="x", padx=24, pady=(18, 20), side="bottom")
-
-        crear_btn = ctk.CTkButton(row, text="Crear y activar", width=150, height=38,
-                                  font=_f(12, "bold"), corner_radius=8,
-                                  fg_color=ACCENT, hover_color=ACCENT_HOV)
-        crear_btn.pack(side="right")
-
-        # revisar() solo informa; nunca deshabilita el botón. Un botón apagado
-        # sin explicación es un callejón sin salida si el aviso en vivo falla,
-        # así que la validación de verdad ocurre al pulsar Crear.
-        def revisar(*_):
-            name = self._safe_name(entry.get())
-            if not name:
-                preview.configure(text="Escribe un nombre.", text_color=MUTED)
-                return None
-            if name.lower() in self._RESERVED:
-                preview.configure(text=f"«{name}» es un nombre reservado por Windows.",
-                                  text_color=WARN)
-                return None
-            if os.path.isdir(os.path.join(data_dir, name)):
-                preview.configure(text=f"Ya existe data/{name}/ — elige otro nombre.",
-                                  text_color=WARN)
-                return None
-            preview.configure(text=f"Se creará:  data/{name}/", text_color=OK)
-            return name
-
-        def crear():
-            name = revisar()
-            if not name:
-                return
-            folder = os.path.join(data_dir, name)
-            try:
-                os.makedirs(folder)
-            except OSError as exc:
-                preview.configure(text=f"No se pudo crear: {exc}", text_color=WARN)
-                return
-            dlg.destroy()
-            self._log_line(f"➕ Proyecto creado: data/{name}/")
-            self._set_project(folder)
-
-        crear_btn.configure(command=crear)
-        entry.bind("<KeyRelease>", revisar)
-        entry.bind("<Return>", lambda _e: crear())
-
-        ctk.CTkButton(row, text="Cancelar", command=dlg.destroy, width=110, height=38,
-                      font=_f(12), corner_radius=8, fg_color="transparent",
-                      border_width=1, border_color=BORDER, text_color=MUTED,
-                      hover_color=SURFACE_ALT).pack(side="left")
-
-        dlg.bind("<Escape>", lambda _e: dlg.destroy())
-        revisar()
-        dlg.after(220, entry.focus_set)
 
     def _select_project(self):
         data_dir = os.path.join(_project_root(), "data")
