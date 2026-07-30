@@ -10,18 +10,51 @@ Importar desde los scrapers:
         is_valid_video_url, parse_count,
         human_scroll, accept_cookies_banner, handle_verification,
         detect_end_of_results,
+        resolve_cookies_path,
         load_cookies, save_cookies, ensure_context,
         collect_video_urls,
+        cli_value, ask_or_arg,
     )
 """
 
 import os
 import re
+import sys
 import glob
 import json
 import asyncio
 import random
 from datetime import datetime, timedelta
+
+# ---------------------------------------------------------------------------
+# PARÁMETROS POR LÍNEA DE COMANDOS
+#
+# El menú gráfico recoge usuario/términos/fechas en sus propios campos y los
+# pasa como flags. Ejecutado a mano, el scraper sigue preguntando por consola:
+# ask_or_arg() usa el flag si viene y, si no, cae al input() de siempre.
+# Con --no-prompt (lo pasa el menú) nunca pregunta: aplica el valor por defecto.
+# ---------------------------------------------------------------------------
+
+def cli_value(flag: str, argv=None) -> str | None:
+    """Valor que sigue a `flag` en argv, o None si el flag no aparece."""
+    argv = sys.argv if argv is None else argv
+    if flag in argv:
+        i = argv.index(flag)
+        if i + 1 < len(argv):
+            return argv[i + 1].strip()
+    return None
+
+
+def ask_or_arg(flag: str, prompt: str, default: str = "", argv=None) -> str:
+    """Valor del flag; si no viene, pregunta por consola (o devuelve default
+    cuando se ha pedido modo no interactivo con --no-prompt)."""
+    argv = sys.argv if argv is None else argv
+    value = cli_value(flag, argv)
+    if value is not None:
+        return value
+    if "--no-prompt" in argv:
+        return default
+    return input(prompt).strip()
 
 # ---------------------------------------------------------------------------
 # FECHA DESDE ID (Snowflake timestamp: id >> 32 = segundos Unix)
@@ -314,6 +347,48 @@ async def detect_end_of_results(page) -> bool:
 # ---------------------------------------------------------------------------
 # GESTIÓN DE COOKIES Y CONTEXTO (parametrizados)
 # ---------------------------------------------------------------------------
+
+def resolve_cookies_path(base_dir: str) -> str:
+    """Resuelve la ruta canónica del archivo de cookies de sesión de TikTok (SEC-01).
+
+    Ubicación canónica: ``BASE_DIR/secrets/tiktok_cookies.json`` — una carpeta
+    dedicada FUERA de ``data/``, que el usuario comparte/comprime junto a sus
+    datasets. Mantener la sesión en ``data/`` arriesga filtrarla por accidente.
+
+    Comportamiento (migración automática + fallback permanente):
+      1. Crea ``secrets/`` si no existe.
+      2. Si el archivo nuevo ya existe, lo devuelve.
+      3. Si NO existe pero sí el legacy ``data/tiktok_cookies.json``, lo MIGRA
+         con ``os.replace`` (move atómico). Si el move falla (permisos, disco,
+         FS distinto), devuelve la ruta legacy como FALLBACK para no romper la
+         autenticación viva del usuario.
+      4. Si no existe ninguno, devuelve la ruta nueva (los guardados irán a
+         ``secrets/`` desde el primer login).
+    """
+    secrets_dir = os.path.join(base_dir, "secrets")
+    new_path = os.path.join(secrets_dir, "tiktok_cookies.json")
+    legacy_path = os.path.join(base_dir, "data", "tiktok_cookies.json")
+
+    try:
+        os.makedirs(secrets_dir, exist_ok=True)
+    except OSError:
+        # No se pudo crear secrets/ → caer al legacy si existe, para no romper auth
+        return legacy_path if os.path.exists(legacy_path) else new_path
+
+    if os.path.exists(new_path):
+        return new_path
+
+    if os.path.exists(legacy_path):
+        try:
+            os.replace(legacy_path, new_path)
+            print(f"🔐 Sesión migrada a {new_path} (fuera de data/)")
+            return new_path
+        except OSError:
+            # Migración fallida → usar legacy para preservar la sesión existente
+            return legacy_path
+
+    return new_path
+
 
 async def load_cookies(context, cookies_path: str) -> None:
     if os.path.exists(cookies_path):

@@ -182,22 +182,59 @@ Ejecuta el menú gráfico:
 python menu.py
 ```
 
-Se abrirá una ventana con navegación horizontal multinivel:
-- **Nivel 1 (arriba)**: Pestañas `👤 Usuario` | `# Hashtag` — elige tu punto de entrada
-- **Nivel 2**: 8 módulos en fila horizontal (Captura, Comentarios, Edad, Grafo, Sentimiento, Gráficas, Publicaciones, Informe)
-- **Nivel 3** (contextual): Acciones del módulo seleccionado (si tiene varias)
-- **Panel central**: Descripción, estado del archivo requerido, botón ▶ Ejecutar
+Se abrirá una ventana con el flujo completo en una barra lateral única:
 
-Flujo recomendado:
-1. **🔑 Cookies** (botón de cabecera) — Inicia sesión en TikTok (solo la primera vez)
-2. **Captura** → `Extraer perfil` o `Buscar hashtag` — Descarga vídeos
-3. **Comentarios** → `Extraer comentarios` — Obtén comentarios de los vídeos
-4. **Edad de cuentas** → `Calcular edades` — Enriquece con datos de creación de cuentas
-5. **Sentimiento** → `Analizar sentimiento` — Clasifica comentarios con IA
-6. **Gráficas multidimensionales** — Genera visualizaciones avanzadas
-7. **Informe HTML** → Crea el informe final y abrelo en el navegador
+- **Cabecera**: tema claro/oscuro y accesos a las carpetas del proyecto y de resultados.
+- **Barra de proyecto**: proyecto activo y chips que indican qué datos ya tiene
+  (📹 vídeos · 💬 comentarios · 🤖 sentimiento · 📅 edad de cuentas).
+- **Barra lateral**: los 12 pasos agrupados en 4 fases, cada uno con su estado:
+  - `✓` hecho — ya existe el archivo que genera
+  - `●` listo — se puede ejecutar ahora
+  - `○` bloqueado — falta un paso previo
+- **Panel de detalle**: descripción del paso, requisitos con el archivo concreto
+  que usará, botones ▶ Ejecutar / ■ Detener con cronómetro, y registro de actividad.
+- **Parámetros de búsqueda**: los pasos de captura piden la cuenta o los términos
+  y el rango de fechas **en el propio menú**, no en la consola. El botón Ejecutar
+  se mantiene desactivado y explica qué falta hasta que los datos son válidos.
+  Lo último que buscaste se recuerda entre sesiones.
+
+Cada script se abre en su propia ventana de consola, porque algunos siguen
+siendo interactivos (por ejemplo, el análisis de sentimiento pregunta el proveedor).
+
+Atajos: `Ctrl+O` cambiar proyecto · `Ctrl+R` ejecutar · `Esc` detener.
+
+Los dos scrapers de captura aceptan además parámetros por línea de comandos, así
+que se pueden automatizar sin el menú (sin flags siguen preguntando por consola):
+```bash
+python src/scrapers/1_tiktok_scraper_user.py --user sanchezcastejon --desde 01-01-2024 --no-prompt
+```
+```bash
+python src/scrapers/2_tiktok_scraper_hastag_api.py --query "therians, otherkin" --no-prompt
+```
+
+Flujo recomendado (la barra lateral lo refleja en orden):
+1. **Configuración → Sesión de TikTok** — Inicia sesión (solo la primera vez)
+2. **1 · Captura → Perfil de usuario** o **Hashtag o búsqueda** — Descarga vídeos
+3. **1 · Captura → Comentarios** — Obtén los comentarios de esos vídeos
+4. **2 · Análisis** — Publicaciones, nubes de palabras y sentimiento con IA
+5. **3 · Investigación** — Edad de cuentas, patrones de bots y grafo de redes
+6. **4 · Resultados** — Gráficas multidimensión e informe HTML final
 
 Todos los módulos usan el proyecto seleccionado en la barra `Proyecto activo:` (arriba a la izquierda). El estado del CSV requerido se muestra claramente — si falta, indica qué paso ejecutar primero.
+
+> 🔐 **Seguridad de la sesión (SEC-01).** La cookie de sesión de TikTok se guarda en la
+> carpeta **`secrets/tiktok_cookies.json`**, *fuera* de `data/`. Esto significa que puedes
+> **compartir o comprimir la carpeta `data/`** con tus datasets sin exponer tu sesión viva
+> de TikTok: la sesión ya no vive ahí. `secrets/` está en `.gitignore`, así que tampoco se
+> versiona. La primera vez que ejecutes la app tras esta actualización, una sesión antigua
+> que tuvieras en `data/tiktok_cookies.json` se **migra automáticamente** a `secrets/`
+> (y se elimina de `data/`); si por algún motivo la migración fallase, los scrapers siguen
+> leyendo la ubicación antigua para no romper la autenticación.
+>
+> *Mejora futura (no implementada): cifrado en reposo del archivo de cookies con DPAPI de
+> Windows (`win32crypt`). Se ha dejado documentado en vez de implementarlo para no añadir la
+> dependencia `pywin32` ni arriesgar la sesión existente; el objetivo de SEC-01 —sacar la
+> sesión de `data/`— ya queda cubierto.*
 
 ### Opción B — Terminal
 
@@ -227,7 +264,7 @@ Los resultados se guardan en `outputs/nombre_cuenta/`.
 ```
 tiktok-scraper/
 │
-├── menu.py                          ← Menú gráfico principal (interfaz horizontal multinivel)
+├── menu.py                          ← Menú gráfico principal (barra lateral por fases del flujo)
 ├── requirements.txt                 ← Lista de librerías a instalar
 │
 ├── config/
