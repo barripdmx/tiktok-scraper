@@ -579,20 +579,44 @@ def save_results(label: str, rows: list) -> dict:
     json_path = os.path.join(proj_dir, f"{label}_videos_api.json")
     csv_path  = os.path.join(proj_dir, f"{label}_videos_api.csv")
 
+    # Fusiona con lo ya capturado en pasadas anteriores: la búsqueda/hashtag de
+    # TikTok no es exhaustiva ni determinista, así que una recaptura (p.ej. con
+    # más rango de fechas) solo debe SUMAR vídeos, nunca perder los que ya
+    # estaban por no haber salido esta vez.
+    existing = {}
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                for r in json.load(f):
+                    vid = r.get("video_id")
+                    if vid:
+                        existing[vid] = r
+        except Exception:
+            pass
+    n_previos = len(existing)
+
+    for r in rows:
+        vid = r.get("video_id")
+        if vid:
+            existing[vid] = r
+
+    merged = list(existing.values())
+
     # JSON
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(rows, f, ensure_ascii=False, indent=2, default=str)
+        json.dump(merged, f, ensure_ascii=False, indent=2, default=str)
 
     # CSV
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore",
                            quoting=csv.QUOTE_NONNUMERIC)
         w.writeheader()
-        w.writerows(rows)
+        w.writerows(merged)
 
     print(f"\n📁 JSON: {json_path}")
     print(f"📄 CSV:  {csv_path}")
-    return {"json": json_path, "csv": csv_path}
+    print(f"📊 Total en proyecto: {len(merged)} vídeos ({len(merged) - n_previos} nuevos esta pasada)")
+    return {"json": json_path, "csv": csv_path, "total": len(merged), "nuevos": len(merged) - n_previos}
 
 
 # ------------------- MAIN -------------------
