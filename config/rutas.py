@@ -45,7 +45,7 @@ def derivar_proyecto(nombre_o_ruta: str) -> str:
 
       user_adamuz_videos.csv                                   → user_adamuz
       zapatero_zp_plus_ultra_videos_api.csv                    → zapatero_zp_plus_ultra
-      ..._videos_api_comentarios_api_con_sentimiento_mistral   → zapatero_zp_plus_ultra
+      ..._videos_api_comentarios_api_con_sentimiento_groq      → zapatero_zp_plus_ultra
       ..._videos_api_comentarios_api_enriquecido_fechas...     → zapatero_zp_plus_ultra
 
     Fallback: si no hay '_videos', devuelve el basename sin extensión.
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         "user_adamuz_videos.csv",
         "zapatero_zp_plus_ultra_videos_api.csv",
         "zapatero_zp_plus_ultra_videos_api_comentarios_api.csv",
-        "zapatero_zp_plus_ultra_videos_api_comentarios_api_con_sentimiento_mistral.csv",
+        "zapatero_zp_plus_ultra_videos_api_comentarios_api_con_sentimiento_groq.csv",
         "data/zapatero_zp_plus_ultra_videos_api_comentarios_api_enriquecido_fechas_creacion.csv",
     ]
     for p in pruebas:

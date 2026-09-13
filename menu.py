@@ -164,8 +164,8 @@ ACTIONS = [
         script="src/analysis/analizar_sentimiento.py",
         requires=["comments"], produces="sentiment", arg_key="comments", console=True,
         help="Clasifica cada comentario con IA. El script te dejará elegir el "
-             "proveedor: RoBERTa (local), Groq o Mistral. Groq y Mistral añaden "
-             "sesgo, arquetipo, intención y pain points; RoBERTa solo sentimiento.",
+             "proveedor: RoBERTa (local) o Groq. Groq añade sesgo, arquetipo, "
+             "intención y pain points; RoBERTa solo sentimiento.",
     ),
 
     dict(
@@ -243,9 +243,9 @@ JUNK_MARKERS = ("prueba", "_test", "debug", "_old", "_lite", "backup", "_bak")
 COMMENT_PATTERNS = (("comentarios_api", 3), ("comentarios", 2), ("comments", 1))
 VIDEO_PATTERNS = (("videos_api", 3), ("videos", 1))
 
-# Riqueza del CSV de sentimiento por proveedor: mistral/groq/gemini rellenan
+# Riqueza del CSV de sentimiento por proveedor: gemini/groq rellenan
 # todas las dimensiones (sesgo, arquetipo…); roberta solo 'sentiment'.
-SENTIMENT_PROVIDERS = (("mistral", 4), ("gemini", 3), ("groq", 2), ("roberta", 1))
+SENTIMENT_PROVIDERS = (("gemini", 3), ("groq", 2), ("roberta", 1))
 
 
 def _match_score(name: str, patterns) -> int:

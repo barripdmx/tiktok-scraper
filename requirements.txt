@@ -1,17 +1,13 @@
 emoji==2.15.0
-groq       # Para análisis de sentimientos con Groq (llama-3.3-70b)
-mistralai  # Para análisis de sentimientos con Mistral (1B tokens/mes gratis)
+groq==1.2.0          # Análisis de sentimiento (Groq · openai/gpt-oss-120b)
 matplotlib==3.10.8
 networkx==3.6.1
-nltk==3.9.1
 numpy==2.4.1
 pandas==3.0.0
 playwright==1.57.0
-pysentimiento
+pysentimiento==0.7.3  # Análisis de sentimiento local (RoBERTa)
 pytest
 python-dotenv==1.2.1
 requests==2.32.5
 seaborn==0.13.2
-tiktokapi==7.2.1
-vaderSentiment==3.3.2
 wordcloud==1.9.5

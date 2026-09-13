@@ -4,15 +4,14 @@ analizar_sentimiento.py — Pipeline unificado de análisis multidimensional con
 
 Proveedores disponibles:
   roberta  → pysentimiento (local, sin API key, sin límites) · solo sentimiento
-  groq     → Groq / llama-3.3-70b-versatile  (100K tokens/día gratis)
-  mistral  → Mistral / open-mistral-nemo      (1B tokens/mes gratis, 2 req/min)
+  groq     → Groq / openai/gpt-oss-120b       (8.000 tokens/min medido)
 
 Uso desde menú:
     python src/analysis/analizar_sentimiento.py
 
 Uso programático:
     from src.analysis.analizar_sentimiento import analizar_sentimiento
-    df_result = analizar_sentimiento(df, csv_path, proveedor_id="mistral")
+    df_result = analizar_sentimiento(df, csv_path, proveedor_id="groq")
 
 Salida (columnas añadidas al CSV):
   sentiment  POS / NEG / NEU / None
@@ -68,20 +67,10 @@ PROVEEDORES = {
     "groq": {
         "nombre":      "Groq",
         "tipo":        "openai_compat",
-        "modelo":      "llama-3.3-70b-versatile",
+        "modelo":      "openai/gpt-oss-120b",
         "api_key_env": "GROQ_API_KEY",
-        "sleep":       0.5,
-        "limite_diario": 100_000,
-        "descripcion": "100K tokens/día · Rápido · análisis multidimensional",
-    },
-    "mistral": {
-        "nombre":      "Mistral",
-        "tipo":        "openai_compat",
-        "modelo":      "open-mistral-nemo",
-        "api_key_env": "MISTRAL_API_KEY",
-        "sleep":       31,
-        "limite_diario": 33_000_000,
-        "descripcion": "1B tokens/mes · 2 req/min · análisis multidimensional",
+        "sleep":       27,
+        "descripcion": "8.000 tokens/min medido · análisis multidimensional",
     },
 }
 
@@ -168,6 +157,25 @@ def clave_estable(row, col_id, col_texto):
     return hashlib.md5(str(row[col_texto]).encode('utf-8', errors='replace')).hexdigest()[:16]
 
 
+def calcular_claves(df_f, col_id, col_texto):
+    """Versión vectorizada de clave_estable para todo el DataFrame.
+
+    Produce EXACTAMENTE las mismas claves que clave_estable (compatibilidad de
+    checkpoints), pero evita construir un dict por fila con df_f.iloc[i].to_dict(),
+    que es O(n) y se vuelve muy lento en datasets de 100k+ comentarios (REL-04).
+    """
+    # .map(str) aplica el str() de Python por elemento (igual que clave_estable);
+    # .astype(str) en pandas 3.0 preserva NaN y rompería la equivalencia.
+    textos = df_f[col_texto].map(str)
+    hashes = textos.map(
+        lambda t: hashlib.md5(t.encode("utf-8", errors="replace")).hexdigest()[:16])
+    if col_id and col_id in df_f.columns:
+        ids = df_f[col_id].map(str).str.strip()
+        invalido = ids.isin(("", "nan", "None"))
+        return ids.mask(invalido, hashes).tolist()
+    return hashes.tolist()
+
+
 def _migrar_checkpoint_si_necesario(ckpt_path, ckpt_data, df_len):
     """Detecta checkpoints con claves posicionales (formato antiguo) y los reinicia."""
     if not ckpt_data:
@@ -218,16 +226,35 @@ def get_checkpoint_path(csv_file, proveedor_id):
 
 def load_checkpoint(checkpoint_path):
     if os.path.exists(checkpoint_path):
-        with open(checkpoint_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(checkpoint_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            # Checkpoint truncado/corrupto (p.ej. crash a mitad de escritura):
+            # preservarlo para inspección y continuar desde cero, en vez de
+            # abortar el arranque y perder de facto todo el progreso.
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup = checkpoint_path.replace(".json", f"_corrupt_{ts}.json")
+            try:
+                os.replace(checkpoint_path, backup)
+                print(f"   ⚠️  Checkpoint corrupto ({str(e)[:60]}); copiado a "
+                      f"{os.path.basename(backup)}. Reiniciando.")
+            except OSError:
+                print(f"   ⚠️  Checkpoint corrupto ({str(e)[:60]}); reiniciando.")
+            return {}
         print(f"   ✓ Checkpoint encontrado: {len(data):,} comentarios ya procesados")
         return data
     return {}
 
 
 def save_checkpoint(checkpoint_path, etiquetas_dict):
-    with open(checkpoint_path, "w", encoding="utf-8") as f:
+    # Escritura atómica: escribir en un temporal y renombrar (os.replace es
+    # atómico en NTFS y POSIX) para que un crash a mitad de json.dump no deje
+    # el checkpoint truncado y, con él, irrecuperable.
+    tmp = checkpoint_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(etiquetas_dict, f, ensure_ascii=False)
+    os.replace(tmp, checkpoint_path)
 
 
 # ─── Esquema multidimensional ────────────────────────────────────────────────
@@ -274,13 +301,27 @@ def _parsear_respuesta(texto_resp, n):
                  or datos.get("comentarios") or [])
     if not isinstance(datos, list):
         raise ValueError("La respuesta no contiene una lista de resultados")
+
+    # Detectar numeración 1-based (el modelo devuelve 1..n en vez de 0..n-1):
+    # un índice == n es imposible en numeración 0-based válida, así que delata
+    # el desplazamiento. Sin corregirlo, TODAS las etiquetas del lote quedan
+    # desplazadas una posición de forma silenciosa.
+    indices_int = [it.get("index") for it in datos
+                   if isinstance(it, dict) and isinstance(it.get("index"), int)]
+    offset = 0
+    if indices_int and 0 not in indices_int and min(indices_int) >= 1 \
+            and max(indices_int) == n:
+        offset = 1
+
     objs = [_obj_defecto() for _ in range(n)]
     for pos, item in enumerate(datos):
         if not isinstance(item, dict):
             continue
         idx = item.get("index")
+        if isinstance(idx, int):
+            idx -= offset
         if not isinstance(idx, int) or not (0 <= idx < n):
-            idx = pos  # si el modelo no numeró bien, usa el orden de aparición
+            idx = pos  # si el modelo no numeró de forma usable, usa el orden de aparición
         if 0 <= idx < n:
             objs[idx] = _parsear_item(item)
     return objs
@@ -377,18 +418,12 @@ def clasificar_roberta(df_f, col_texto):
     return etiquetas
 
 
-# ─── Proveedor: OpenAI-compatible (Groq / Mistral) ──────────────────────────
+# ─── Proveedor: OpenAI-compatible (Groq) ────────────────────────────────────
 
 def _crear_cliente_openai_compat(proveedor_id, api_key):
     if proveedor_id == "groq":
         from groq import Groq
         return Groq(api_key=api_key)
-    elif proveedor_id == "mistral":
-        try:
-            from mistralai import Mistral
-        except ImportError:
-            from mistralai.client import Mistral
-        return Mistral(api_key=api_key)
     raise ValueError(f"Proveedor desconocido: {proveedor_id}")
 
 
@@ -402,17 +437,6 @@ def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens
         resp = client.chat.completions.create(
             model=modelo, messages=mensajes,
             temperature=0.2, top_p=0.9, max_tokens=max_tokens,
-            response_format=json_fmt,
-        )
-        u = resp.usage or {}
-        return (resp.choices[0].message.content.strip(),
-                resp.choices[0].finish_reason,
-                getattr(u, "prompt_tokens", 0),
-                getattr(u, "completion_tokens", 0))
-    elif proveedor_id == "mistral":
-        resp = client.chat.complete(
-            model=modelo, messages=mensajes,
-            temperature=0.2, max_tokens=max_tokens,
             response_format=json_fmt,
         )
         u = resp.usage or {}
@@ -500,17 +524,29 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
     # Normaliza BOM en cabeceras (algunos CSV vienen con '﻿' en la 1ª columna)
     df = df.rename(columns=lambda c: c.lstrip("﻿") if isinstance(c, str) else c)
 
+    # Deduplicar por comment_id: un re-scraping que no respaldó el CSV pudo
+    # duplicar comentarios; cada uno debe etiquetarse y contarse una sola vez.
+    col_id_dedup = detectar_columna_id(df)
+    if col_id_dedup:
+        antes_dedup = len(df)
+        df = df.drop_duplicates(subset=[col_id_dedup]).reset_index(drop=True)
+        if antes_dedup != len(df):
+            print(f"  🧹 {antes_dedup - len(df):,} comentarios duplicados eliminados "
+                  f"(por '{col_id_dedup}')")
+
     col_texto = detectar_columna_texto(df)
     if col_texto is None:
         print(f"❌ Columna de texto no encontrada. Columnas: {list(df.columns)}")
         return None
     print(f"  Columna texto : '{col_texto}'")
 
+    # FUN-12: se analizan TODOS los comentarios (directos + respuestas) para que
+    # sentimiento, analítica y enriquecimiento describan la misma población.
+    df_f = df.reset_index(drop=True)
     if 'is_reply' in df.columns:
-        df_f = df[df['is_reply'] == 0].reset_index(drop=True)
-        print(f"  Comentarios directos: {len(df_f):,} (de {len(df):,} totales)")
+        n_rep = int((pd.to_numeric(df_f['is_reply'], errors='coerce') == 1).sum())
+        print(f"  Comentarios: {len(df_f):,} (incluye {n_rep:,} respuestas)")
     else:
-        df_f = df.reset_index(drop=True)
         print(f"  Comentarios: {len(df_f):,}")
 
     if len(df_f) == 0:
@@ -529,15 +565,22 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
         _guardar_y_mostrar(df_f, csv_file, proveedor_id)
         return df_f
 
-    # ── APIs externas (Groq / Mistral) ───────────────────────────────────────
-    api_key = os.getenv(cfg.get("api_key_env", ""), "")
-    if not api_key:
+    # ── API externa (Groq) ────────────────────────────────────────────────────
+    # GROQ_API_KEYS (varias, separadas por coma) rotan al agotar el cupo diario
+    # de una clave; si no existe, cae a la variable singular de siempre (una
+    # sola clave, comportamiento sin cambios).
+    claves_api = [k.strip() for k in
+                  os.getenv(cfg.get("api_key_env", "") + "S", "").split(",") if k.strip()]
+    if not claves_api:
+        api_key = os.getenv(cfg.get("api_key_env", ""), "")
+        if api_key:
+            claves_api = [api_key]
+    if not claves_api:
         print(f"  ❌ {cfg.get('api_key_env')} no configurada en config/.env")
         return None
 
     col_id = detectar_columna_id(df_f)
-    claves = [clave_estable(df_f.iloc[i].to_dict(), col_id, col_texto)
-              for i in range(len(df_f))]
+    claves = calcular_claves(df_f, col_id, col_texto)
     fuente = f"columna '{col_id}'" if col_id else "hash MD5 del texto"
     print(f"  Clave checkpoint  : {fuente}")
 
@@ -568,84 +611,98 @@ def analizar_sentimiento(df, csv_file, proveedor_id):
 
     n_pendientes = len(pendientes)
 
-    # Estimación de tiempo
-    if proveedor_id == "groq":
-        tokens_est = n_pendientes * 60
-        dias_est = tokens_est / cfg["limite_diario"]
-        if dias_est > 1:
-            print(f"  ⏱️  ~{dias_est:.0f} días con Groq free ({tokens_est:,} tokens / 100K/día)")
-    elif proveedor_id == "mistral":
-        horas_est = (n_pendientes / BATCH_SIZE) * cfg["sleep"] / 3600
-        print(f"  ⏱️  ~{horas_est:.1f}h con Mistral free (2 req/min)")
+    # Estimación de tiempo (a partir del sleep real calibrado, no de un tope
+    # de cuota diaria sin verificar: el límite medido de Groq es por minuto).
+    horas_est = (n_pendientes / BATCH_SIZE) * cfg["sleep"] / 3600
+    print(f"  ⏱️  ~{horas_est:.1f}h con Groq (8.000 tokens/min medido)")
 
     # Contexto de los vídeos (copy + hashtags)
     contexto_videos = cargar_contexto_videos(csv_file, df_f)
 
-    # Crear cliente
+    # Crear cliente (primera clave de la lista)
+    idx_clave = 0
     try:
         if cfg["tipo"] == "openai_compat":
-            client = _crear_cliente_openai_compat(proveedor_id, api_key)
+            client = _crear_cliente_openai_compat(proveedor_id, claves_api[idx_clave])
         else:
             raise ValueError(f"Tipo de proveedor no soportado: {cfg['tipo']}")
     except ImportError:
-        pkg_map = {"groq": "groq", "mistral": "mistralai"}
+        pkg_map = {"groq": "groq"}
         print(f"  ❌ Librería no instalada. Ejecuta: pip install {pkg_map.get(proveedor_id, '')}")
         return None
 
     tiene_vid = 'video_id' in df_f.columns and bool(contexto_videos)
 
-    # Bucle de clasificación
-    try:
-        for lote_num, i in enumerate(range(0, n_pendientes, BATCH_SIZE)):
-            indices_lote = pendientes[i:i + BATCH_SIZE]
-            textos = [str(df_f.loc[idx, col_texto])[:TRUNC_TEXTO] for idx in indices_lote]
+    # Bucle de clasificación. Si salta RateLimitDiaria y quedan más claves en
+    # claves_api, se cambia de cliente y se repite: pendientes se recalcula
+    # cada vuelta a partir de `etiquetas`, así lo ya hecho con la clave
+    # anterior no se reprocesa. Solo se rinde si no quedan claves.
+    while True:
+        pendientes = [i for i in range(len(df_f)) if not _es_completo(etiquetas.get(claves[i]))]
+        n_pendientes = len(pendientes)
+        if not pendientes:
+            break
+        try:
+            for lote_num, i in enumerate(range(0, n_pendientes, BATCH_SIZE)):
+                indices_lote = pendientes[i:i + BATCH_SIZE]
+                textos = [str(df_f.loc[idx, col_texto])[:TRUNC_TEXTO] for idx in indices_lote]
 
-            # Etiquetas de vídeo + mapa de contexto del lote
-            contexto_map, vid_labels = {}, []
-            if tiene_vid:
-                label_de_vid = {}
-                for idx in indices_lote:
-                    vid = str(df_f.loc[idx, 'video_id'])
-                    if vid not in label_de_vid:
-                        lbl = f"v{len(label_de_vid)+1}"
-                        label_de_vid[vid] = lbl
-                        ctx = contexto_videos.get(vid)
-                        if ctx and (ctx["copy"] or ctx["hashtags"]):
-                            contexto_map[lbl] = ctx
-                    vid_labels.append(label_de_vid[vid])
-            else:
-                vid_labels = [""] * len(indices_lote)
+                # Etiquetas de vídeo + mapa de contexto del lote
+                contexto_map, vid_labels = {}, []
+                if tiene_vid:
+                    label_de_vid = {}
+                    for idx in indices_lote:
+                        vid = str(df_f.loc[idx, 'video_id'])
+                        if vid not in label_de_vid:
+                            lbl = f"v{len(label_de_vid)+1}"
+                            label_de_vid[vid] = lbl
+                            ctx = contexto_videos.get(vid)
+                            if ctx and (ctx["copy"] or ctx["hashtags"]):
+                                contexto_map[lbl] = ctx
+                        vid_labels.append(label_de_vid[vid])
+                else:
+                    vid_labels = [""] * len(indices_lote)
 
-            prompt_user = construir_mensaje_usuario(textos, vid_labels, contexto_map)
-            print(f"  Lote {lote_num+1:>4}: {len(textos)} coment...", end=" ", flush=True)
+                prompt_user = construir_mensaje_usuario(textos, vid_labels, contexto_map)
+                print(f"  Lote {lote_num+1:>4}: {len(textos)} coment...", end=" ", flush=True)
 
-            resultado = clasificar_lote_openai_compat(
-                client, proveedor_id, cfg["modelo"], prompt_user, len(indices_lote))
+                resultado = clasificar_lote_openai_compat(
+                    client, proveedor_id, cfg["modelo"], prompt_user, len(indices_lote))
 
-            if resultado is not None:
-                for idx, obj in zip(indices_lote, resultado):
-                    etiquetas[claves[idx]] = obj
-                print(f"✓  (procesados: {len(etiquetas):,})")
-            else:
-                print("⚠️  omitido — error de API, no se escribe nada")
+                if resultado is not None:
+                    for idx, obj in zip(indices_lote, resultado):
+                        etiquetas[claves[idx]] = obj
+                    print(f"✓  (procesados: {len(etiquetas):,})")
+                else:
+                    print("⚠️  omitido — error de API, no se escribe nada")
 
-            if (lote_num + 1) % 10 == 0:
-                save_checkpoint(ckpt_path, etiquetas)
-                print(f"  💾 Checkpoint guardado ({len(etiquetas):,})")
+                # REL-04: el checkpoint es un único JSON con TODAS las etiquetas y se
+                # reescribe entero cada vez. En datasets grandes eso es mucha I/O, así
+                # que se guarda menos a menudo (la escritura es atómica y además se
+                # guarda siempre al interrumpir o agotar la cuota diaria).
+                save_cada = 10 if len(etiquetas) < 5000 else 50
+                if (lote_num + 1) % save_cada == 0:
+                    save_checkpoint(ckpt_path, etiquetas)
+                    print(f"  💾 Checkpoint guardado ({len(etiquetas):,})")
 
-            time.sleep(cfg["sleep"])
+                time.sleep(cfg["sleep"])
 
-    except RateLimitDiaria:
-        print("\n⏸️  LÍMITE DIARIO ALCANZADO")
-        print(f"   Procesados: {len(etiquetas):,} / {len(df_f):,}")
-        save_checkpoint(ckpt_path, etiquetas)
-        print("   ✅ Checkpoint guardado. Vuelve mañana para continuar.")
-        return None
-    except KeyboardInterrupt:
-        print("\n⏹️  Interrumpido por el usuario.")
-        save_checkpoint(ckpt_path, etiquetas)
-        print(f"   ✅ {len(etiquetas):,} comentarios guardados en checkpoint.")
-        return None
+        except RateLimitDiaria:
+            save_checkpoint(ckpt_path, etiquetas)
+            idx_clave += 1
+            if idx_clave >= len(claves_api):
+                print("\n⏸️  LÍMITE DIARIO ALCANZADO (todas las claves agotadas)")
+                print(f"   Procesados: {len(etiquetas):,} / {len(df_f):,}")
+                print("   ✅ Checkpoint guardado. Vuelve mañana para continuar.")
+                return None
+            print(f"\n🔁 Cupo agotado en clave {idx_clave}/{len(claves_api)}"
+                  f" — cambiando a la siguiente.")
+            client = _crear_cliente_openai_compat(proveedor_id, claves_api[idx_clave])
+        except KeyboardInterrupt:
+            print("\n⏹️  Interrumpido por el usuario.")
+            save_checkpoint(ckpt_path, etiquetas)
+            print(f"   ✅ {len(etiquetas):,} comentarios guardados en checkpoint.")
+            return None
 
     save_checkpoint(ckpt_path, etiquetas)
     _aplicar_columnas(df_f, claves, etiquetas)
@@ -699,7 +756,7 @@ def _guardar_y_mostrar(df_f, csv_file, proveedor_id):
 
     sufijo = "roberta" if proveedor_id == "roberta" else proveedor_id
     output_csv = csv_file.replace(".csv", f"_con_sentimiento_{sufijo}.csv")
-    df_f.to_csv(output_csv, index=False, encoding="utf-8")
+    df_f.to_csv(output_csv, index=False, encoding="utf-8-sig")
     print(f"\n  ✅ CSV guardado: {os.path.basename(output_csv)}")
 
 
@@ -758,7 +815,7 @@ def main():
         return
 
     print(f"\n  Archivo: {os.path.basename(csv_file)}")
-    df = pd.read_csv(csv_file)
+    df = pd.read_csv(csv_file, encoding="utf-8-sig")
     print(f"  Filas  : {len(df):,}")
 
     proveedor_id = seleccionar_proveedor()

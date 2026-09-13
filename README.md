@@ -42,7 +42,7 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 ---
 
 ### 2. Groq
-> Proporciona el modelo `llama-3.3-70b-versatile` (muy rápido, gratuito). Plan gratuito: 14.400 peticiones/día.
+> Proporciona el modelo `openai/gpt-oss-120b` (muy rápido, gratuito). Plan gratuito: 8.000 tokens/min medido.
 
 - **Crear cuenta:** https://console.groq.com
   - Pulsa **"Sign Up"** — puedes registrarte con Google
@@ -53,28 +53,15 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 
 ---
 
-### 3. Mistral AI
-> Proporciona el modelo `open-mistral-nemo`. Plan gratuito: 1.000 millones de tokens/mes (≈ 3.000 análisis).
-
-- **Crear cuenta:** https://console.mistral.ai
-  - Pulsa **"Sign up"** — puedes registrarte con Google o GitHub
-- **Obtener API Key:** https://console.mistral.ai/api-keys
-  - Pulsa **"Create new key"**
-  - Copia la clave (empieza por `...`)
-  - ⚠️ Solo se muestra **una vez** — cópiala antes de cerrar
-
----
-
 ## 🔑 APIs que necesitas configurar
 
-Resumen de las 2 claves que necesitas:
+Resumen de la clave que necesitas:
 
 | API | Para qué sirve | Límite gratuito | URL para obtenerla |
 |---|---|---|---|
-| **MISTRAL_API_KEY** | Análisis de sentimiento (principal) | 1B tokens/mes | https://console.mistral.ai/api-keys |
-| **GROQ_API_KEY** | Análisis de sentimiento (rápido) | 14.400 req/día | https://console.groq.com/keys |
+| **GROQ_API_KEY** | Análisis de sentimiento | 8.000 tokens/min medido | https://console.groq.com/keys |
 
-> **¿Para qué sirven 2 APIs de sentimiento?** El sistema puede usar RoBERTa (local, sin internet) o un proveedor LLM. Para el análisis multidimensional se usa **Mistral** (principal); Groq queda como alternativa rápida. Si una falla o alcanza su límite, puedes cambiar a la otra.
+> **¿Hace falta una API para el sentimiento?** No: el sistema también puede usar RoBERTa (local, sin internet, sin API key), aunque solo clasifica sentimiento básico. Groq añade sesgo, arquetipo, intención y pain points, y admite varias claves separadas por coma (`GROQ_API_KEYS`) para rotar si una agota su cupo.
 
 ---
 
@@ -149,15 +136,17 @@ La primera vez que ejecutes el análisis de sentimiento, se descargará automát
 3. Copia y pega este contenido, sustituyendo los valores por tus claves reales:
 
 ```env
-MISTRAL_API_KEY=aquí_tu_clave_de_mistral
 GROQ_API_KEY=aquí_tu_clave_de_groq
 ```
 
-**Ejemplo real (con claves inventadas):**
+**Ejemplo real (con clave inventada):**
 ```env
-MISTRAL_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+> Si tienes varias claves de Groq, puedes rotarlas separándolas por coma en
+> `GROQ_API_KEYS=clave1,clave2,clave3` — se cambia de clave automáticamente
+> al agotar el cupo de una.
 
 > ⚠️ **Importante:** El archivo `.env` **nunca se sube a GitHub** (está en `.gitignore`). Tus claves son privadas y solo están en tu ordenador.
 
@@ -288,7 +277,7 @@ tiktok-scraper/
 │   ├── analysis/
 │   │   ├── analitica_publicaciones.py  ← +15 gráficas de rendimiento
 │   │   ├── analitica_comentarios.py    ← Nubes de palabras y análisis
-│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq+Mistral
+│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq
 │   │   └── comparativa_usuarios.py     ← Comparar múltiples cuentas
 │   │
 │   └── visualization/
@@ -313,7 +302,7 @@ data/
  └─ zapatero_zp_plus_ultra/
      ├─ zapatero_zp_plus_ultra_videos_api.csv                     ← vídeos
      ├─ ..._comentarios_api.csv                                   ← comentarios
-     ├─ ..._con_sentimiento_mistral.csv                           ← + análisis IA
+     ├─ ..._con_sentimiento_groq.csv                              ← + análisis IA
      └─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
 ```
 
@@ -365,7 +354,7 @@ Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine
 | Análisis de datos | Pandas, NumPy |
 | Gráficas | Matplotlib, Seaborn |
 | IA — Sentimiento local | pysentimiento (RoBERTa) |
-| IA — Sentimiento nube | RoBERTa / Groq / Mistral |
+| IA — Sentimiento nube | RoBERTa / Groq |
 | Nubes de palabras | WordCloud |
 | Grafos de redes | NetworkX → GEXF (Gephi) |
 | Interfaz gráfica | CustomTkinter |

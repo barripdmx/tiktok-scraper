@@ -2,7 +2,7 @@
 
 ## Descripción
 Herramienta de scraping y analítica de TikTok en `H:\TikTok`.
-Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, mistralai, groq, pysentimiento**. Python. Windows 10.
+Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, groq, pysentimiento**. Python. Windows 10.
 
 ## Estructura de carpetas
 - `data_tiktok/` — Salida de CSVs y JSONs (symlink a Google Drive → `I:\Mi unidad\data_tiktok`)
@@ -27,7 +27,7 @@ Stack: **Playwright, pandas, matplotlib, wordcloud, nltk/vader, networkx, mistra
 |--------|---------|--------|
 | `analitica_publicaciones.py` | Nubes, evolución, temporal, heatmap de vídeos | `gráficas/{project}/publicaciones/` |
 | `analitica_comentarios.py` | Nubes, comunidad, temporal, sentimiento, emojis | `comentarios/` y `polaridad_ia/` |
-| `analizar_sentimiento.py` | Análisis multidimensional con IA (RoBERTa/Groq/Mistral) | CSV `_con_sentimiento_*.csv` |
+| `analizar_sentimiento.py` | Análisis multidimensional con IA (RoBERTa/Groq) | CSV `_con_sentimiento_*.csv` |
 | `analitica_redes.py` | KPIs y gráficas para redes sociales | `graficas_redes/` |
 | `comparativa_usuarios.py` | Sentimiento comparativo entre múltiples cuentas | — |
 
@@ -81,7 +81,7 @@ Las nubes con banda de título de color DEBEN usar `GridSpec(3, 2, height_ratios
 **Nunca** usar `ax.add_patch(Rectangle)` ni `ax.text` dentro del eje del wordcloud — se solapa con la imagen.
 
 ## Sentimiento IA (análisis multidimensional)
-- Pipeline unificado: `analizar_sentimiento.py` (RoBERTa local / Groq / Mistral). **Mistral** es el proveedor principal.
+- Pipeline unificado: `analizar_sentimiento.py` (RoBERTa local / Groq). **Groq** es el proveedor de IA.
 - Checkpoint: `{csv}_{proveedor}_checkpoint.json` — dict `{clave_estable: {sentiment, bias, archetype, intent, pain_point, sarcasm, noise}}`
 - Clave estable = `comment_id` si existe, si no hash MD5 del texto (no posición)
 - Taxonomía cerrada (enums + ruido/homónimos) en `config/taxonomia_ia.py`
@@ -92,7 +92,7 @@ Las nubes con banda de título de color DEBEN usar `GridSpec(3, 2, height_ratios
 2. `1_tiktok_scraper_user.py` o `1_tiktok_scraper_hastag.py` → CSV de vídeos
 3. `1_tiktok_scraper_comentarios.py` → CSV de comentarios (opcional)
 4. `analitica_publicaciones.py` → gráficas de vídeos
-5. `analizar_sentimiento.py` → sentimiento IA multidimensional con Mistral (puede tardar horas)
+5. `analizar_sentimiento.py` → sentimiento IA multidimensional con Groq (puede tardar horas)
 6. `analitica_comentarios.py` → gráficas de comentarios (requiere checkpoint de sentimiento)
 7. `generar_informe_html.py` → informe HTML entregable
 
