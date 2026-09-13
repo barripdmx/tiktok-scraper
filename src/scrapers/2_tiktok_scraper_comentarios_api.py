@@ -51,7 +51,32 @@ _file_dir = os.path.dirname(os.path.abspath(__file__))
 _is_in_scrapers = _file_dir.endswith(("scrapers", "scrapers\\"))
 BASE_DIR = os.path.abspath(os.path.join(_file_dir, "..", "..")) if _is_in_scrapers else _file_dir
 DATA_DIR     = os.path.join(BASE_DIR, "data")
-COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
+
+
+def _resolve_cookies_path(base_dir):
+    """SEC-01: ubica la sesión en secrets/ (fuera de data/). Migra el legacy
+    con os.replace; si el move falla, devuelve la ruta legacy (fallback) para
+    no romper la autenticación. Equivalente a tiktok_utils.resolve_cookies_path."""
+    secrets_dir = os.path.join(base_dir, "secrets")
+    new_path = os.path.join(secrets_dir, "tiktok_cookies.json")
+    legacy_path = os.path.join(base_dir, "data", "tiktok_cookies.json")
+    try:
+        os.makedirs(secrets_dir, exist_ok=True)
+    except OSError:
+        return legacy_path if os.path.exists(legacy_path) else new_path
+    if os.path.exists(new_path):
+        return new_path
+    if os.path.exists(legacy_path):
+        try:
+            os.replace(legacy_path, new_path)
+            print(f"🔐 Sesión migrada a {new_path} (fuera de data/)")
+            return new_path
+        except OSError:
+            return legacy_path
+    return new_path
+
+
+COOKIES_PATH = _resolve_cookies_path(BASE_DIR)  # SEC-01: secrets/, no data/
 STORAGE_STATE_PATH = os.path.join(BASE_DIR, "drivers", "playwright_auth", "tiktok.json")
 PROFILE_DIR  = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 LOG_DIR      = os.path.join(DATA_DIR, "logs")
@@ -67,6 +92,7 @@ RELOAD_ON_MISSING_COMMENT_BUTTON = False  # evita cierres de Chromium en vídeos
 PAGE_SETTLE_BEFORE_COMMENTS_MS = 4500  # TikTok puede devolver API vacía si se abre el panel demasiado pronto
 PREMATURE_EOF_GAP = 5      # si faltan bastantes comentarios, no fiarse del primer has_more=0
 MAX_PREMATURE_EOF = 4      # cuántos EOF "prematuros" tolerar antes de parar
+MAX_REPLY_NO_PROGRESS = 15  # respuestas seguidas con +0 antes de parar (hilo atascado)
 
 SAVE_PARTIAL_EVERY_VIDEO = True
 CHECKPOINT_SUFFIX        = "_checkpoint.json"
@@ -226,9 +252,13 @@ def append_unavailable_video(row: Dict[str, Any], ruta_csv: str) -> None:
 
 
 def save_checkpoint(path: str, processed_ids: List[str], out_csv: str) -> None:
-    with open(path, "w", encoding="utf-8") as f:
+    # Escritura atómica (escribir en .tmp y renombrar) para no truncar el
+    # checkpoint si el proceso muere a mitad de json.dump.
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"processed_video_ids": processed_ids, "out_csv": out_csv},
                   f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def load_checkpoint(path: str) -> dict:
@@ -722,7 +752,12 @@ _REPLY_CLICK_JS = """() => {
         'p[class*="reply-link" i]',
         'span[class*="reply-link" i]',
     ];
-    const seen = new Set();
+    // window.__ en vez de una Set local: page.evaluate() ejecuta esta función
+    // entera de cero cada vez, así que una Set local olvida lo ya pulsado en
+    // el ciclo anterior y reclica el mismo botón mientras TikTok tarda en
+    // actualizar su estado — de ahí los hilos de respuestas atascados.
+    window.__repliesClicked = window.__repliesClicked || new WeakSet();
+    const seen = window.__repliesClicked;
     for (const sel of knownSels) {
         for (const el of document.querySelectorAll(sel)) {
             if (!seen.has(el) && RE.test(el.textContent)) {
@@ -850,6 +885,9 @@ async def extract_comments_api(
             await dismiss_overlays(page)
             await page.wait_for_timeout(3000)
             try:
+                # FUN-10: combined_sel no estaba definido (NameError latente si se
+                # activaba el flag). Construirlo desde la lista de selectores de botón.
+                combined_sel = ", ".join(_COMMENT_BTN_SELS)
                 el = await page.wait_for_selector(combined_sel, timeout=8000, state="visible")
                 if el:
                     await el.click(timeout=2000)
@@ -896,6 +934,7 @@ async def extract_comments_api(
         MAX_TIMEOUTS        = 5   # × 10s = 50s sin respuesta → parar
         premature_eof_hits  = 0
         empty_main_pages    = 0
+        reply_no_progress   = 0  # respuestas seguidas con +0 (hilo de reply atascado)
 
         try:
             while True:
@@ -939,6 +978,21 @@ async def extract_comments_api(
                         empty_main_pages += 1
                     else:
                         empty_main_pages = 0
+
+                # Las respuestas no pasan por el STOP de más abajo (solo mira
+                # páginas principales), así que un hilo de replies atascado
+                # reclicando el mismo botón (ver JS más arriba) corría para
+                # siempre. Cualquier progreso real, sea de página principal o
+                # de respuesta, resetea la cuenta; sin progreso, se acumula.
+                if new_count > 0:
+                    reply_no_progress = 0
+                elif is_reply:
+                    reply_no_progress += 1
+                    if reply_no_progress >= MAX_REPLY_NO_PROGRESS:
+                        print(f"[{video_id}] STOP — {MAX_REPLY_NO_PROGRESS} respuestas "
+                              f"seguidas sin avance (hilo de replies atascado)")
+                        break
+
                 acc         = len(comments_by_cid)
                 tag         = f"reply→{parent_id[-6:]}" if is_reply else ""
                 _log_page(video_id, page_num, new_count, acc, total_from_api, has_more, start_time, tag)
@@ -1054,6 +1108,7 @@ async def main():
 
     checkpoint_path = os.path.join(dest_dir, f"{base}{CHECKPOINT_SUFFIX}")
     processed_ids   = []
+    reiniciar_desde_cero = False
 
     if not skip_checkpoint:
         checkpoint      = load_checkpoint(checkpoint_path)
@@ -1063,19 +1118,36 @@ async def main():
             n_skip = sum(1 for u in urls if extract_video_id(u) in processed_ids)
             if n_skip > 0:
                 print(f"♻️  Checkpoint: {n_skip} videos ya procesados")
-                if not count_arg:
+                if not count_arg and sys.stdin.isatty():
                     ans = input("   ¿Continuar? (S/n): ").strip().lower()
                 else:
+                    # Sin TTY (lanzado desde la GUI) o con argumentos CLI:
+                    # continuar por defecto en vez de bloquear en un input invisible.
                     ans = "s"
-                    print("   → Continuando (argumentos CLI)")
+                    print("   → Continuando (sin terminal interactiva o argumentos CLI)")
                 if ans in ("", "s", "si", "sí", "y", "yes"):
                     urls = [u for u in urls if extract_video_id(u) not in processed_ids]
                     print(f"   ↩ Saltando {n_skip}. Quedan {len(urls)} videos")
                 else:
                     processed_ids = []
+                    reiniciar_desde_cero = True
                     print("   → Reiniciando desde cero")
     else:
         print("🔄 Ignorando checkpoint (--skip-checkpoint)")
+        reiniciar_desde_cero = True
+
+    # Al reiniciar desde cero, respaldar el CSV de salida anterior: append_csv
+    # añadiría comentarios encima de los ya existentes y duplicaría todo el
+    # dataset (los consumidores no deduplican por comment_id en origen).
+    if reiniciar_desde_cero and os.path.exists(out_csv):
+        ts_bak = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_csv = out_csv.replace(".csv", f"_backup_{ts_bak}.csv")
+        try:
+            os.replace(out_csv, backup_csv)
+            print(f"🗄  CSV anterior preservado en: {os.path.basename(backup_csv)}")
+        except OSError as e:
+            print(f"⚠️  No se pudo respaldar el CSV anterior ({e}); "
+                  "los comentarios podrían duplicarse.")
 
     if count_arg is None and not sys.argv[1:]:
         cuantos = input("\n🔢 ¿Cuántos videos procesar? (Enter=todos): ").strip()
@@ -1096,7 +1168,10 @@ async def main():
 
     print(f"\n🔬 Procesando {len(urls)} videos...\n")
 
-    all_comments: List[Dict[str, Any]] = []
+    # REL-04: el CSV se escribe incrementalmente (append_csv) tras cada vídeo,
+    # así que solo acumulamos un contador para el resumen, no todos los
+    # comentarios en RAM (un dataset grande consumiría memoria sin necesidad).
+    n_comments_total = 0
     ok_videos     = 0
     total_expected = 0
 
@@ -1133,7 +1208,7 @@ async def main():
 
                         if cap:
                             ok_videos += 1
-                            all_comments.extend(comments)
+                            n_comments_total += cap
                             if SAVE_PARTIAL_EVERY_VIDEO:
                                 append_csv(comments, out_csv)
                                 print(f"💾 Parcial guardado (+{cap})")
@@ -1177,10 +1252,10 @@ async def main():
     print("RESUMEN FINAL")
     print("=" * 60)
     print(f"Videos procesados:   {ok_videos}/{len(urls)}")
-    print(f"Comentarios totales: {len(all_comments):,}")
+    print(f"Comentarios totales: {n_comments_total:,}")
     if total_expected:
-        overall_pct = int((len(all_comments) / total_expected) * 100)
-        print(f"Cobertura global:    {overall_pct}% ({len(all_comments):,}/{total_expected:,})")
+        overall_pct = int((n_comments_total / total_expected) * 100)
+        print(f"Cobertura global:    {overall_pct}% ({n_comments_total:,}/{total_expected:,})")
     print(f"CSV de salida:       {out_csv}")
 
     close_logging()
