@@ -3,10 +3,11 @@
 Pruebas de la configuración de navegación del menú (menu.py).
 
 No prueban el render de CustomTkinter (requiere display), sino la integridad de
-la estructura declarativa MODULES/TABS y del dispatch de acciones:
-  - cada acción referencia un script que existe en disco (o usa run="informe"),
-  - el módulo "captura" cubre todas las pestañas (per_tab),
-  - los file_key usados son válidos.
+la estructura declarativa GROUPS/ACTIONS:
+  - cada acción referencia un script que existe en disco,
+  - cada acción pertenece a un grupo declarado,
+  - los file_key usados en requires/produces son válidos,
+  - el paso "informe" está bien definido.
 """
 
 import os
@@ -22,62 +23,56 @@ if ROOT not in sys.path:
 ctk = pytest.importorskip("customtkinter")  # salta si no hay entorno GUI instalado
 import menu  # noqa: E402
 
-VALID_FILE_KEYS = {None, "videos", "comments", "sentiment", "enriched"}
-TAB_IDS = {t[0] for t in menu.TABS}
+GROUP_IDS = {g[0] for g in menu.GROUPS}
+VALID_FILE_KEYS = {None} | set(menu.FILE_LABELS.keys())
 
 
-def _iter_actions():
-    """Genera (module_id, action) para todas las acciones, resolviendo per_tab."""
-    for mod in menu.MODULES:
-        if "per_tab" in mod:
-            for act in mod["per_tab"].values():
-                yield mod["id"], act
-        else:
-            for act in mod["actions"]:
-                yield mod["id"], act
+def test_groups_no_vacios():
+    assert len(menu.GROUPS) >= 2
+    assert "captura" in GROUP_IDS and "analisis" in GROUP_IDS
 
 
-def test_tabs_no_vacias():
-    assert len(menu.TABS) >= 2
-    assert "usuario" in TAB_IDS and "hashtag" in TAB_IDS
+def test_actions_ids_unicos():
+    ids = [a["id"] for a in menu.ACTIONS]
+    assert len(ids) == len(set(ids)), "Hay ids de acción duplicados"
 
 
-def test_modules_ids_unicos():
-    ids = [m["id"] for m in menu.MODULES]
-    assert len(ids) == len(set(ids)), "Hay ids de módulo duplicados"
+def test_actions_group_valido():
+    for act in menu.ACTIONS:
+        assert act["group"] in GROUP_IDS, (
+            f"La acción {act['id']} referencia un grupo inexistente: {act['group']}"
+        )
 
 
-def test_captura_cubre_todas_las_pestanas():
-    captura = next(m for m in menu.MODULES if m["id"] == "captura")
-    assert "per_tab" in captura
-    assert set(captura["per_tab"].keys()) == TAB_IDS
-
-
-def test_cada_modulo_tiene_al_menos_una_accion():
-    for mod in menu.MODULES:
-        acciones = mod.get("actions") or list(mod.get("per_tab", {}).values())
-        assert acciones, f"El módulo {mod['id']} no tiene acciones"
+def test_cada_grupo_tiene_al_menos_una_accion():
+    grupos_usados = {act["group"] for act in menu.ACTIONS}
+    for gid, _label in menu.GROUPS:
+        assert gid in grupos_usados, f"El grupo {gid} no tiene ninguna acción"
 
 
 def test_file_keys_validos():
-    for mid, act in _iter_actions():
-        assert act["file_key"] in VALID_FILE_KEYS, (
-            f"file_key inválido en {mid}: {act['file_key']}"
+    for act in menu.ACTIONS:
+        for req in act.get("requires", []):
+            assert req in VALID_FILE_KEYS, (
+                f"requires inválido en {act['id']}: {req}"
+            )
+        assert act.get("produces") in VALID_FILE_KEYS, (
+            f"produces inválido en {act['id']}: {act.get('produces')}"
+        )
+        assert act.get("arg_key") in VALID_FILE_KEYS, (
+            f"arg_key inválido en {act['id']}: {act.get('arg_key')}"
         )
 
 
 def test_scripts_existen_en_disco():
-    for mid, act in _iter_actions():
-        if act.get("run") == "informe":
-            continue  # usa generar_informe(), no un script suelto
-        script = act["script"]
-        assert script, f"Acción sin script en módulo {mid}"
+    for act in menu.ACTIONS:
+        script = act.get("script")
+        assert script, f"Acción sin script: {act['id']}"
         ruta = os.path.join(ROOT, script)
         assert os.path.isfile(ruta), f"No existe el script: {script}"
 
 
 def test_accion_informe_bien_definida():
-    informe = next(m for m in menu.MODULES if m["id"] == "informe")
-    act = informe["actions"][0]
-    assert act["run"] == "informe"
-    assert act["file_key"] == "videos"
+    informe = next(a for a in menu.ACTIONS if a["id"] == "informe")
+    assert informe.get("opens_report") is True
+    assert "videos" in informe["requires"]
