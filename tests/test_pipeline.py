@@ -281,3 +281,47 @@ class TestSaveResultsFusion:
         ids = {r["video_id"] for r in data}
         assert ids == {"v1", "v2", "v3"}
         assert next(r for r in data if r["video_id"] == "v2")["video_desc"] == "segundo-editado"
+
+
+# ===========================================================================
+# FUN-13 — nubes de comentarios: reutiliza el sentimiento ya calculado
+# ===========================================================================
+
+ac = pytest.importorskip("src.analysis.analitica_comentarios",
+                          reason="requiere wordcloud/tkinter/emoji")
+
+
+class TestCargarSentimientoPrecalculado:
+    def _df_comentarios(self):
+        return pd.DataFrame({
+            "comment_id": ["c1", "c2", "c3"],
+            "texto": ["a", "b", "c"],
+        })
+
+    def test_sin_csv_de_sentimiento_devuelve_none(self, tmp_path):
+        csv_file = str(tmp_path / "proy_comentarios_api.csv")
+        assert ac._cargar_sentimiento_precalculado(csv_file, self._df_comentarios()) is None
+
+    def test_reutiliza_groq_sobre_roberta_y_mapea_etiquetas(self, tmp_path):
+        base = tmp_path / "proy_comentarios_api"
+        # Si existen ambos, debe preferir groq (más rico) sobre roberta.
+        pd.DataFrame({"comment_id": ["c1", "c2", "c3"],
+                      "sentiment": ["POS", "NEG", "NEU"]}).to_csv(
+            f"{base}_con_sentimiento_roberta.csv", index=False)
+        pd.DataFrame({"comment_id": ["c1", "c2", "c3"],
+                      "sentiment": ["NEG", "NEG", "POS"]}).to_csv(
+            f"{base}_con_sentimiento_groq.csv", index=False)
+
+        out = ac._cargar_sentimiento_precalculado(f"{base}.csv", self._df_comentarios())
+
+        assert out is not None
+        assert list(out["sentimiento"]) == ["negativo", "negativo", "positivo"]
+
+    def test_comentario_sin_sentimiento_cae_a_neutro(self, tmp_path):
+        base = tmp_path / "proy_comentarios_api"
+        pd.DataFrame({"comment_id": ["c1"], "sentiment": ["POS"]}).to_csv(
+            f"{base}_con_sentimiento_groq.csv", index=False)
+
+        out = ac._cargar_sentimiento_precalculado(f"{base}.csv", self._df_comentarios())
+
+        assert list(out["sentimiento"]) == ["positivo", "neutro", "neutro"]

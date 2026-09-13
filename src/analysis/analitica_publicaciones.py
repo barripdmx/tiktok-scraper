@@ -693,9 +693,12 @@ def main():
         "Color emoji", f"Color para emoticonos (Enter = mismo que principal):") or args.color_texto)
 
     # Nubes
-    graf_nube_palabras(df, file_id, color_text)
-    graf_nube_hashtags(df, file_id, color_text)
-    graf_nube_emoticonos(df, file_id, color_emoji)
+    try:
+        graf_nube_palabras(df, file_id, color_text)
+        graf_nube_hashtags(df, file_id, color_text)
+        graf_nube_emoticonos(df, file_id, color_emoji)
+    except Exception as e:
+        print(f"-> Error en nubes: {e}")
 
     # Reporte TXT
     metrics = ['video_likes', 'video_vistas', 'video_compartidos', 'video_comentarios', 'video_guardados']
