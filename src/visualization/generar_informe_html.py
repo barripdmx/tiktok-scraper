@@ -332,20 +332,25 @@ def find_sentiment_csv(csv_path: str) -> tuple[str, str]:
     base = os.path.splitext(csv_path)[0]
     data_dir = os.path.dirname(csv_path)
     candidatos = [
-        base + "_con_sentimiento_mistral.csv",
         base + "_con_sentimiento_groq.csv",
         base + "_con_sentimiento_roberta.csv",
-        base + "_con_sentimientos_mistral.csv",   # nombres heredados
-        base + "_con_sentimientos_groq.csv",
+        base + "_con_sentimientos_groq.csv",   # nombres heredados
     ]
-    # También buscar en data/ por nombre de proyecto
+    # También buscar en data/ por nombre de proyecto. El sentimiento cuelga del
+    # nombre del CSV de COMENTARIOS, no del de vídeos, así que los candidatos
+    # de arriba casi nunca coinciden y se llega siempre aquí; por eso se ordena
+    # por proveedor (groq da sesgo+arquetipo+intención+pain_point, roberta
+    # solo sentimiento) en vez de fiarse del orden de os.listdir().
     nombre = os.path.basename(base).split("_videos")[0]
     try:
-        for f in os.listdir(data_dir):
-            if f.startswith(nombre) and "sentimiento" in f.lower() and f.endswith(".csv"):
-                ruta = os.path.join(data_dir, f)
-                if ruta not in candidatos:
-                    candidatos.append(ruta)
+        encontrados = [f for f in os.listdir(data_dir)
+                      if f.startswith(nombre) and "sentimiento" in f.lower() and f.endswith(".csv")]
+        prioridad = {"groq": 2, "roberta": 1}
+        encontrados.sort(key=lambda f: -max((v for k, v in prioridad.items() if k in f.lower()), default=0))
+        for f in encontrados:
+            ruta = os.path.join(data_dir, f)
+            if ruta not in candidatos:
+                candidatos.append(ruta)
     except OSError:
         pass
 
@@ -704,7 +709,7 @@ def build_dimensiones_extra(df_s) -> str:
 def build_sentiment_section(sentiment_csv: str, col: str) -> str:
     """Genera una sección HTML con distribución de sentimiento (gráfica base64 + KPIs)."""
     try:
-        df_s = pd.read_csv(sentiment_csv, low_memory=False)
+        df_s = pd.read_csv(sentiment_csv, low_memory=False, encoding="utf-8-sig")
     except Exception:
         return ""
 
@@ -764,7 +769,7 @@ def build_sentiment_section(sentiment_csv: str, col: str) -> str:
         <div class="kpi-label">{lbl} · {pct}</div>
       </div>"""
 
-    sin_clasificar = len(pd.read_csv(sentiment_csv, low_memory=False)) - total
+    sin_clasificar = len(pd.read_csv(sentiment_csv, low_memory=False, encoding="utf-8-sig")) - total
     aviso_sc = ""
     if sin_clasificar > 0:
         aviso_sc = (f'<p class="muted" style="margin-top:10px;font-size:12px;">'
@@ -1486,9 +1491,10 @@ def build_headline(df: pd.DataFrame, report_title: str,
             (c for c in ["autor_handle", "video_author", "autor", "username", "author"]
              if c in df.columns), None
         )
-        if autor_col:
-            top_cuenta = str(df[autor_col].value_counts().index[0])
-            top_n      = int(df[autor_col].value_counts().iloc[0])
+        vc = df[autor_col].value_counts() if autor_col else None
+        if autor_col and vc is not None and len(vc):
+            top_cuenta = str(vc.index[0])
+            top_n      = int(vc.iloc[0])
             top_pct    = int(top_n / total_videos * 100)
             if top_pct >= 15:
                 return (
@@ -1586,9 +1592,10 @@ def build_standfirst(df: pd.DataFrame, report_title: str,
              if c in df.columns), None
         )
         autor_line = ""
-        if autor_col:
-            top_cuenta = str(df[autor_col].value_counts().index[0])
-            top_n      = int(df[autor_col].value_counts().iloc[0])
+        vc = df[autor_col].value_counts() if autor_col else None
+        if autor_col and vc is not None and len(vc):
+            top_cuenta = str(vc.index[0])
+            top_n      = int(vc.iloc[0])
             top_pct    = int(top_n / total_videos * 100)
             autor_line = (
                 f" <strong>@{html.escape(top_cuenta)}</strong> es la cuenta más activa"
@@ -2249,7 +2256,7 @@ def main():
         try:
             df = pd.read_csv(csv_path, encoding="utf-8-sig")
         except Exception:
-            df = pd.read_csv(csv_path, encoding="utf-8", errors="ignore")
+            df = pd.read_csv(csv_path, encoding="utf-8", encoding_errors="replace")
         print(f"   {len(df)} registros cargados.")
     except Exception as e:
         print(f"❌ Error leyendo CSV: {e}")

@@ -1061,7 +1061,8 @@ def main(csv_file_arg=None):
             print("  1. Ejecuta la opción 1 o 2 del menú para descargar videos")
             print("  2. Luego ejecuta la opción 3 para descargar comentarios")
             print("  3. Después ejecuta esta opción nuevamente")
-            input("\nPresiona Enter para volver al menú...")
+            if _sys.stdin.isatty():
+                input("\nPresiona Enter para volver al menú...")
             return
 
     base_name = os.path.basename(csv_file)
@@ -1070,7 +1071,7 @@ def main(csv_file_arg=None):
     create_output_folder(file_id)
 
     try:
-        df = pd.read_csv(csv_file)
+        df = pd.read_csv(csv_file, encoding="utf-8-sig")
         required_cols = ['texto', 'autor_handle', 'likes', 'fecha']
         if not all(col in df.columns for col in required_cols):
             print(f"Error: El CSV debe contener las columnas: {', '.join(required_cols)}")
@@ -1078,18 +1079,25 @@ def main(csv_file_arg=None):
             print(f"Columnas faltantes: {', '.join(missing)}")
             return
         print(f"Cargados {len(df):,} comentarios en total.")
+        # Deduplicar por comment_id si existe (un re-scraping pudo duplicar filas).
+        for _idc in ('comment_id', 'comentario_id', 'cid'):
+            if _idc in df.columns:
+                _antes = len(df)
+                df = df.drop_duplicates(subset=[_idc]).reset_index(drop=True)
+                if _antes != len(df):
+                    print(f"🧹 {_antes - len(df):,} comentarios duplicados eliminados (por '{_idc}')")
+                break
     except Exception as e:
         print(f"Error crítico al leer el CSV: {e}")
         return
 
-    # Filtrar solo comentarios directos (no replies)
+    # FUN-12: se analizan TODOS los comentarios (directos + respuestas) para
+    # describir la misma población que sentimiento y enriquecimiento.
     if 'is_reply' in df.columns:
-        n_total = len(df)
-        df = df[df['is_reply'] == 0].copy()
-        n_replies = n_total - len(df)
-        print(f"Filtrando comentarios directos: {len(df):,} ({len(df)/n_total*100:.1f}%) — {n_replies:,} replies excluidas")
+        n_rep = int((pd.to_numeric(df['is_reply'], errors='coerce') == 1).sum())
+        print(f"Analizando todos los comentarios: {len(df):,} (incluye {n_rep:,} respuestas)")
     else:
-        print("Columna 'is_reply' no encontrada — se analizan todos los comentarios.")
+        print(f"Analizando todos los comentarios: {len(df):,}")
 
     # --- Interfaz de Colores (con fallback a valores por defecto) ---
     final_color_text = '#A93226'  # Color por defecto (rojo TikTok)
@@ -1138,7 +1146,8 @@ def main(csv_file_arg=None):
 
     print(f"\n✅ ¡PROCESO COMPLETADO!")
     print(f"📂 Revisa la carpeta '{OUTPUT_FOLDER}' para ver los resultados de '{file_id}'.")
-    input("\nPresiona Enter para volver al menú...")
+    if _sys.stdin.isatty():
+        input("\nPresiona Enter para volver al menú...")
 
 if __name__ == "__main__":
     import sys

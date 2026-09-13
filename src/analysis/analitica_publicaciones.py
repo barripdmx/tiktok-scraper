@@ -682,7 +682,7 @@ def main():
     create_output_folder(file_id)
 
     try:
-        df = pd.read_csv(csv_file)
+        df = pd.read_csv(csv_file, encoding="utf-8-sig")
         print(f"Cargados {len(df):,} registros.")
     except Exception as e:
         print(f"Error: {e}"); return

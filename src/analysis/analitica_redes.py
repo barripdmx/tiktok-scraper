@@ -62,7 +62,7 @@ def load_csv(path):
     try:
         df = pd.read_csv(path, encoding="utf-8-sig")
     except Exception:
-        df = pd.read_csv(path, encoding="utf-8", errors="ignore")
+        df = pd.read_csv(path, encoding="utf-8", encoding_errors="replace")
     return df
 
 
