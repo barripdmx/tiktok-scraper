@@ -6,6 +6,8 @@ outputs/*
 !outputs/.gitkeep
 
 # ── Credenciales y configuración sensible ─────────────────────────────────────
+# SEC-01: la sesión viva de TikTok vive en secrets/ (fuera de data/) — nunca versionar
+secrets/
 config/.env
 config/old_good.env
 user.env

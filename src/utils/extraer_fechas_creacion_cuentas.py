@@ -26,6 +26,14 @@ SCRIPT_TAG_RE = re.compile(
 )
 
 
+class RateLimited(Exception):
+    """TikTok devolvió 429 o redirigió a verificación/captcha/login.
+
+    Es un error transitorio (bloqueo global), distinto de un error por cuenta:
+    el llamante debe aplicar backoff y reintentar, no cachearlo como definitivo.
+    """
+
+
 def ensure_data_dir() -> str:
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -116,6 +124,12 @@ def fetch_account_info(session: requests.Session, username: str):
             "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
     )
+    # Señales claras de bloqueo global → error transitorio (reintentable).
+    if resp.status_code == 429:
+        raise RateLimited("HTTP 429 Too Many Requests")
+    final_url = (resp.url or "").lower()
+    if any(s in final_url for s in ("/verify", "captcha", "/login")):
+        raise RateLimited(f"Redirigido a verificación/captcha/login ({resp.url})")
     resp.raise_for_status()
 
     user_info = extract_user_payload(resp.text)

@@ -28,11 +28,19 @@ USO:
 
 import os
 import csv
+import hashlib
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
 from collections import defaultdict
 from typing import List, Dict, Tuple, Set
+
+
+def _anon(handle: str) -> str:
+    """SEC-03: seudónimo estable de un handle (sha256 truncado).
+    El mismo handle siempre da el mismo seudónimo, preservando la estructura
+    de la red sin exponer la identidad real de los comentaristas."""
+    return "u_" + hashlib.sha256(handle.encode("utf-8", "replace")).hexdigest()[:10]
 
 try:
     import networkx as nx
@@ -87,7 +95,7 @@ def cargar_csv(ruta: str) -> List[Dict[str, str]]:
     return rows
 
 
-def procesar_datos(all_rows: List[Dict[str, str]]) -> Tuple[Dict[Tuple[str, str], int], Dict[str, Dict]]:
+def procesar_datos(all_rows: List[Dict[str, str]], anonimizar: bool = False) -> Tuple[Dict[Tuple[str, str], int], Dict[str, Dict]]:
     """
     Procesa todos los comentarios y genera:
     - edges: diccionario {(source, target): weight}
@@ -114,7 +122,12 @@ def procesar_datos(all_rows: List[Dict[str, str]]) -> Tuple[Dict[Tuple[str, str]
         # Ignorar auto-comentarios (el autor comenta en su propio video)
         if username.lower() == autor_handle.lower():
             continue
-        
+
+        # SEC-03: seudonimizar tras validar (la comparación usa los handles reales)
+        if anonimizar:
+            username = _anon(username)
+            autor_handle = _anon(autor_handle)
+
         # Edge: autor_handle -> username
         edge_counts[(autor_handle, username)] += 1
         
@@ -231,7 +244,11 @@ def main():
 
     # Pre-carga el primer archivo si viene como argumento (del menú con proyecto activo)
     import sys as _sys
-    _preload = _sys.argv[1] if len(_sys.argv) > 1 and os.path.isfile(_sys.argv[1]) else None
+    anonimizar = "--anonimizar" in _sys.argv
+    _preload = next((a for a in _sys.argv[1:]
+                     if not a.startswith("--") and os.path.isfile(a)), None)
+    if anonimizar:
+        print("🔒 Modo anónimo: los handles se sustituyen por seudónimo (u_xxxxxxxxxx).\n")
 
     while True:
         print(f"📂 Archivos cargados: {len(archivos_cargados)}")
@@ -275,7 +292,7 @@ def main():
     
     # Procesar datos
     print("\n⚙️ Procesando datos...")
-    edge_counts, node_stats = procesar_datos(all_rows)
+    edge_counts, node_stats = procesar_datos(all_rows, anonimizar=anonimizar)
     
     if not edge_counts:
         print("❌ No se encontraron relaciones válidas (username ↔ autor_handle)")
@@ -286,11 +303,12 @@ def main():
     
     # Generar nombre de salida
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suf = "_anon" if anonimizar else ""
     if len(archivos_cargados) == 1:
         base = os.path.splitext(os.path.basename(archivos_cargados[0]))[0]
-        output_name = f"{base}_network.gexf"
+        output_name = f"{base}_network{suf}.gexf"
     else:
-        output_name = f"tiktok_combined_network_{timestamp}.gexf"
+        output_name = f"tiktok_combined_network{suf}_{timestamp}.gexf"
     
     # Guardar en el mismo directorio del primer archivo
     output_dir = os.path.dirname(archivos_cargados[0])

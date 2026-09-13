@@ -20,13 +20,25 @@ async def main():
         state = await context.storage_state(path=state_path)
         print("✅ Storage state guardado en:", state_path)
 
-        # Exportar cookies en el formato que esperan los scrapers
-        data_dir = os.path.join(BASE_DIR, "data")
-        os.makedirs(data_dir, exist_ok=True)
-        cookies_path = os.path.join(data_dir, "tiktok_cookies.json")
+        # Exportar cookies en el formato que esperan los scrapers.
+        # SEC-01: la sesión se guarda en secrets/ (fuera de data/), de modo que
+        # compartir/comprimir data/ con los datasets ya no expone la sesión viva.
+        secrets_dir = os.path.join(BASE_DIR, "secrets")
+        os.makedirs(secrets_dir, exist_ok=True)
+        cookies_path = os.path.join(secrets_dir, "tiktok_cookies.json")
         with open(cookies_path, "w", encoding="utf-8") as f:
             json.dump(state["cookies"], f, ensure_ascii=False, indent=2)
         print("🍪 Cookies exportadas en:", cookies_path)
+
+        # Limpieza: si quedaba una sesión legacy en data/, eliminarla para no
+        # dejar copias de la sesión dentro de la carpeta que se comparte.
+        legacy_path = os.path.join(BASE_DIR, "data", "tiktok_cookies.json")
+        if os.path.exists(legacy_path):
+            try:
+                os.remove(legacy_path)
+                print("🧹 Sesión legacy eliminada de data/:", legacy_path)
+            except OSError:
+                pass
 
         await browser.close()
 
