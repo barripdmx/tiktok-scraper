@@ -438,6 +438,12 @@ def _llamar_api_openai_compat(client, proveedor_id, modelo, mensajes, max_tokens
             model=modelo, messages=mensajes,
             temperature=0.2, top_p=0.9, max_tokens=max_tokens,
             response_format=json_fmt,
+            # gpt-oss-120b es un modelo "razonador": su cadena de pensamiento
+            # oculta gasta del MISMO max_tokens que la respuesta JSON visible.
+            # Con effort medio (default) esa cadena puede agotar el presupuesto
+            # antes de terminar el JSON → finish_reason="length" (truncada).
+            # La tarea es clasificación cerrada, no requiere razonar mucho.
+            reasoning_effort="low",
         )
         u = resp.usage or {}
         return (resp.choices[0].message.content.strip(),
@@ -490,7 +496,8 @@ def clasificar_lote_openai_compat(client, proveedor_id, modelo, prompt_user, n, 
             if "model_decommissioned" in err or "decommissioned" in err:
                 raise RuntimeError(f"\n❌ MODELO DADO DE BAJA: {modelo}")
             # Errores transitorios (5xx, 429 por minuto, red): backoff y reintento
-            if any(k in err.lower() for k in ("429", "500", "502", "503", "timeout", "overloaded")):
+            if any(k in err.lower() for k in
+                   ("429", "500", "502", "503", "timeout", "overloaded", "connection")):
                 wait = 5 * intento
                 print(f"   ⚠️ Error transitorio ({err[:50]}), espera {wait}s (intento {intento}/{reintentos})…")
                 time.sleep(wait)
