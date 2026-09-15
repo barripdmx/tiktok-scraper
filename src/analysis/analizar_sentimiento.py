@@ -422,8 +422,15 @@ def clasificar_roberta(df_f, col_texto):
 
 def _crear_cliente_openai_compat(proveedor_id, api_key):
     if proveedor_id == "groq":
+        import httpx
         from groq import Groq
-        return Groq(api_key=api_key)
+        # keepalive_expiry corto (< sleep entre lotes, ~27s): sin esto, httpx
+        # reutiliza la misma conexión TCP entre lotes y, tras quedar inactiva
+        # ese rato, un NAT/proxy intermedio puede cerrarla en silencio — la
+        # siguiente petición falla con "Connection error." aunque la red esté
+        # bien. Al expirarla antes nosotros, se abre una conexión fresca.
+        http_client = httpx.Client(limits=httpx.Limits(keepalive_expiry=15.0))
+        return Groq(api_key=api_key, http_client=http_client)
     raise ValueError(f"Proveedor desconocido: {proveedor_id}")
 
 
