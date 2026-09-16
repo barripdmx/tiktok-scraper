@@ -2,9 +2,9 @@
 """
 migrar_estructura.py — Reorganiza data/ y outputs/ a la estructura por proyecto.
 
-Estructura objetivo:
-    data/{proyecto}/                         ← todos los CSV/JSON del proyecto
-    outputs/{proyecto}/
+Estructura objetivo — todo bajo data/{proyecto}/, junto a los CSV de origen:
+    data/{proyecto}/
+        ├─ Grafo/                            ← .gexf
         ├─ informes/
         ├─ graficas_videos/publicaciones/
         └─ graficas_comentarios/
@@ -12,6 +12,9 @@ Estructura objetivo:
             ├─ graficas_multidimensionales/
             ├─ graficas_patrones_cuentas/
             └─ polaridad_ia/
+
+outputs/ queda solo como reliquia de proyectos que ya no tienen carpeta en
+data/ (legacy) — esos NO se tocan, para no adivinar a qué proyecto pertenecen.
 
 Uso:
     python scripts/migrar_estructura.py            # DRY-RUN (solo muestra el plan)
@@ -137,6 +140,52 @@ def migrar_outputs():
                 pass
 
 
+# ── 3) Mover graficas_comentarios/graficas_videos/informes ya reorganizados de
+#      outputs/{proyecto}/ → data/{proyecto}/, cuando ese proyecto existe en
+#      data/ (si no existe, es un outputs/ antiguo sin proyecto actual: se deja
+#      intacto, no se adivina a qué carpeta de data/ pertenecería) ────────────
+SUBCARPETAS_A_DATA = ("graficas_comentarios", "graficas_videos", "informes")
+
+
+def migrar_a_data():
+    if not os.path.isdir(OUTPUTS_BASE):
+        return
+    for proyecto_dir in os.listdir(OUTPUTS_BASE):
+        ruta_proj = os.path.join(OUTPUTS_BASE, proyecto_dir)
+        if not os.path.isdir(ruta_proj):
+            continue
+        if not os.path.isdir(os.path.join(DATA_BASE, proyecto_dir)):
+            continue  # sin proyecto correspondiente en data/: no tocar
+
+        for sub in SUBCARPETAS_A_DATA:
+            origen = os.path.join(ruta_proj, sub)
+            if not os.path.isdir(origen):
+                continue
+            destino = os.path.join(DATA_BASE, proyecto_dir, sub)
+            _mover(origen, destino)
+
+
+# ── 4) Meter los .gexf/.gephi sueltos en data/{proyecto}/ dentro de Grafo/ ─────
+EXTENSIONES_GRAFO = (".gexf", ".gephi")
+
+
+def migrar_gexf_sueltos():
+    if not os.path.isdir(DATA_BASE):
+        return
+    for proyecto_dir in os.listdir(DATA_BASE):
+        ruta_proj = os.path.join(DATA_BASE, proyecto_dir)
+        if not os.path.isdir(ruta_proj):
+            continue
+        for nombre in os.listdir(ruta_proj):
+            if not nombre.lower().endswith(EXTENSIONES_GRAFO):
+                continue
+            origen = os.path.join(ruta_proj, nombre)
+            if not os.path.isfile(origen):
+                continue
+            destino = os.path.join(ruta_proj, "Grafo", nombre)
+            _mover(origen, destino)
+
+
 def main():
     print("=" * 72)
     print("  MIGRACIÓN DE ESTRUCTURA  " + ("(APLICANDO)" if APLICAR else "(DRY-RUN)"))
@@ -144,6 +193,8 @@ def main():
 
     migrar_datos()
     migrar_outputs()
+    migrar_a_data()
+    migrar_gexf_sueltos()
 
     if not acciones:
         print("\n  ✅ Nada que migrar — la estructura ya está organizada.\n")

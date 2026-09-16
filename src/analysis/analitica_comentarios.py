@@ -18,7 +18,7 @@ from collections import Counter
 # Rutas relativas a la raíz del proyecto (dos niveles arriba de src/analysis)
 import sys as _sys
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUTPUT_BASE     = os.path.join(BASE_DIR, "outputs")
+OUTPUT_BASE     = os.path.join(BASE_DIR, "data")
 OUTPUT_FOLDER   = OUTPUT_BASE
 POLARIDAD_FOLDER = OUTPUT_BASE
 LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
@@ -995,7 +995,7 @@ def generar_nubes_sentimiento(df, file_id):
 
 def find_latest_csv(data_dirs=None):
     """Busca el CSV de comentarios más reciente en las carpetas de datos.
-    Busca en: data/, data_tiktok/ y outputs/"""
+    Busca en: data/ y data_tiktok/"""
     if data_dirs is None:
         data_dirs = [
             os.path.join(BASE_DIR, "data"),

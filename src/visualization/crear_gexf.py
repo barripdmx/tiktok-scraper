@@ -28,11 +28,16 @@ USO:
 
 import os
 import csv
+import sys
 import hashlib
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
 from collections import defaultdict
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, BASE_DIR)
+from config.rutas import derivar_proyecto, dir_grafo
 from typing import List, Dict, Tuple, Set
 
 
@@ -310,8 +315,8 @@ def main():
     else:
         output_name = f"tiktok_combined_network{suf}_{timestamp}.gexf"
     
-    # Guardar en el mismo directorio del primer archivo
-    output_dir = os.path.dirname(archivos_cargados[0])
+    # Guardar en data/{proyecto}/Grafo/, junto al resto de resultados del proyecto
+    output_dir = dir_grafo(derivar_proyecto(archivos_cargados[0]))
     output_path = os.path.join(output_dir, output_name)
     
     # Crear GEXF

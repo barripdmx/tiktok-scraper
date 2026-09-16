@@ -231,6 +231,10 @@ def _project_root() -> str:
     return os.path.abspath(os.path.dirname(__file__))
 
 
+sys.path.insert(0, _project_root())
+from config.rutas import derivar_proyecto, dir_informes
+
+
 # Archivos auxiliares que nunca son la salida de un paso.
 IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint")
 
@@ -474,8 +478,8 @@ class MenuApp(ctk.CTk):
 
         self._theme_btn = util("🌙  Oscuro", self._toggle_theme,
                                "Alternar tema claro / oscuro", 112)
-        util("📂  Outputs", lambda: self._open(os.path.join(_project_root(), "outputs")),
-             "Abrir la carpeta de resultados generados")
+        util("📂  Datos", lambda: self._open(os.path.join(_project_root(), "data")),
+             "Abrir la carpeta de datos y resultados generados")
         util("➕  Nuevo proyecto", self._new_project,
              "Empezar una captura nueva: el proyecto lo nombra el scraper "
              "con la cuenta o los términos que busques", 158)
@@ -1226,15 +1230,13 @@ class MenuApp(ctk.CTk):
         if not videos:
             return
         base = os.path.splitext(os.path.basename(videos))[0]
-        proyecto_id = base.split("_videos")[0]
-        informe = os.path.join(_project_root(), "outputs", proyecto_id,
-                               "informes", f"{base}_informe.html")
+        informe = os.path.join(dir_informes(derivar_proyecto(base)), f"{base}_informe.html")
         if os.path.exists(informe):
             ok, msg = open_path(informe)
             self._log_line(("🌐 " if ok else "⚠ ") + msg)
         else:
             self._log_line("⚠ Informe generado pero no encontrado en la ruta esperada; "
-                           "ábrelo desde Outputs.")
+                           "ábrelo desde Datos.")
 
     def _open(self, path: str):
         ok, msg = open_path(path)

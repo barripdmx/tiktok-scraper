@@ -251,7 +251,7 @@ python src/analysis/analizar_sentimiento.py
 python src/visualization/generar_informe_html.py
 ```
 
-Los resultados se guardan en `outputs/nombre_cuenta/`.
+Los resultados se guardan en `data/nombre_cuenta/`, junto a los CSV de origen.
 
 ---
 
@@ -284,8 +284,7 @@ tiktok-scraper/
 │       ├── generar_informe_html.py  ← Informe periodístico HTML autocontenido
 │       └── crear_gexf.py           ← Grafo de redes para Gephi
 │
-├── data/                            ← CSVs descargados (no se suben a GitHub)
-└── outputs/                         ← Gráficas e informes generados (no se suben)
+└── data/                            ← CSVs, gráficas e informes por proyecto (no se sube a GitHub)
 ```
 
 ---
@@ -296,20 +295,15 @@ Cada búsqueda (un usuario o un hashtag) es un **proyecto**. Todos sus datos y
 resultados se agrupan en una carpeta con el nombre del proyecto, para que nada se
 mezcle entre búsquedas distintas.
 
-**Datos descargados** — `data/{proyecto}/`:
+Todo — datos descargados y resultados generados — vive bajo `data/{proyecto}/`:
 ```
 data/
  └─ zapatero_zp_plus_ultra/
      ├─ zapatero_zp_plus_ultra_videos_api.csv                     ← vídeos
      ├─ ..._comentarios_api.csv                                   ← comentarios
      ├─ ..._con_sentimiento_groq.csv                              ← + análisis IA
-     └─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
-```
-
-**Resultados generados** — `outputs/{proyecto}/`:
-```
-outputs/
- └─ zapatero_zp_plus_ultra/
+     ├─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
+     ├─ Grafo/                             ← grafo de red (.gexf, para Gephi)
      ├─ informes/                          ← informe HTML final
      ├─ graficas_videos/
      │   └─ publicaciones/                 ← gráficas de rendimiento de vídeos
@@ -320,8 +314,8 @@ outputs/
          └─ polaridad_ia/                  ← sentimiento
 ```
 
-> **¿Tienes archivos de versiones anteriores sueltos en `data/`?** Ejecuta una vez
-> `python scripts/migrar_estructura.py` (muestra el plan) y luego
+> **¿Tienes archivos de versiones anteriores sueltos en `data/` o en `outputs/`?**
+> Ejecuta una vez `python scripts/migrar_estructura.py` (muestra el plan) y luego
 > `python scripts/migrar_estructura.py --aplicar` para reorganizarlo todo
 > automáticamente a esta estructura.
 
@@ -339,7 +333,7 @@ El scraping de datos públicos (perfiles públicos, hashtags públicos) es un á
 TikTok actualiza continuamente su web para dificultar el scraping. Si un scraper deja de funcionar, es probable que TikTok haya cambiado algo. Revisa los issues del repositorio para ver si hay una solución.
 
 **¿Dónde se guardan los datos?**
-Todo se guarda en local, en las carpetas `data/` y `outputs/`. Nada se sube a ningún servidor externo.
+Todo se guarda en local, en la carpeta `data/`. Nada se sube a ningún servidor externo.
 
 **El análisis de sentimiento da error la primera vez**
 Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine y vuelve a ejecutarlo.

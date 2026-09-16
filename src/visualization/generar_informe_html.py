@@ -84,9 +84,9 @@ def derive_title(file_id: str) -> str:
 
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, BASE_DIR)
-OUTPUTS_BASE    = os.path.join(BASE_DIR, "outputs")
-OUTPUT_FOLDER   = OUTPUTS_BASE   # se sobreescribe en main() con outputs/{project}/publicaciones
-INFORMES_FOLDER = OUTPUTS_BASE   # se sobreescribe en main() con outputs/{project}/informes
+DATA_BASE       = os.path.join(BASE_DIR, "data")
+OUTPUT_FOLDER   = DATA_BASE   # se sobreescribe en main() con data/{project}/graficas_videos/publicaciones
+INFORMES_FOLDER = DATA_BASE   # se sobreescribe en main() con data/{project}/informes
 
 # Secciones del informe: cada una con sus imágenes y número de columnas
 REPORT_SECTIONS = [

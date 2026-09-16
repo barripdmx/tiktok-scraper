@@ -4,12 +4,12 @@
 Todos los scripts deben derivar el nombre de proyecto y las carpetas de salida
 desde aquí, para evitar que cada módulo invente su propia estructura.
 
-Estructura estándar:
+Estructura estándar — todo el resultado de un proyecto vive bajo su propia
+carpeta en data/, junto a los CSV/JSON de origen:
 
     data/
-     └─ {proyecto}/                          ← todos los CSV del proyecto
-    outputs/
-     └─ {proyecto}/
+     └─ {proyecto}/                          ← CSV/JSON del proyecto
+         ├─ Grafo/                           ← .gexf
          ├─ informes/
          ├─ graficas_videos/
          │   └─ publicaciones/
@@ -29,9 +29,8 @@ Importar desde cualquier script en src/ así:
 import os
 
 # ── Bases ─────────────────────────────────────────────────────────────────────
-BASE_DIR     = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DATA_BASE    = os.path.join(BASE_DIR, "data")
-OUTPUTS_BASE = os.path.join(BASE_DIR, "outputs")
+BASE_DIR  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DATA_BASE = os.path.join(BASE_DIR, "data")
 
 
 # ── Derivación del nombre de proyecto ──────────────────────────────────────────
@@ -70,50 +69,55 @@ def dir_datos_para(nombre_o_ruta: str) -> str:
     return dataset_dir(derivar_proyecto(nombre_o_ruta))
 
 
-# ── Carpetas de resultados ─────────────────────────────────────────────────────
+# ── Carpetas de resultados (bajo data/{proyecto}/, junto a los CSV) ────────────
 def _out(proyecto: str, *partes: str) -> str:
-    d = os.path.join(OUTPUTS_BASE, proyecto, *partes)
+    d = os.path.join(DATA_BASE, proyecto, *partes)
     os.makedirs(d, exist_ok=True)
     return d
 
 
 def dir_proyecto(proyecto: str) -> str:
-    """outputs/{proyecto}/"""
+    """data/{proyecto}/"""
     return _out(proyecto)
 
 
+def dir_grafo(proyecto: str) -> str:
+    """data/{proyecto}/Grafo/ (.gexf)"""
+    return _out(proyecto, "Grafo")
+
+
 def dir_informes(proyecto: str) -> str:
-    """outputs/{proyecto}/informes/"""
+    """data/{proyecto}/informes/"""
     return _out(proyecto, "informes")
 
 
 def dir_graficas_videos(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_videos/"""
+    """data/{proyecto}/graficas_videos/"""
     return _out(proyecto, "graficas_videos")
 
 
 def dir_publicaciones(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_videos/publicaciones/"""
+    """data/{proyecto}/graficas_videos/publicaciones/"""
     return _out(proyecto, "graficas_videos", "publicaciones")
 
 
 def dir_graficas_comentarios(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_comentarios/ (nubes, hashtags, heatmaps…)."""
+    """data/{proyecto}/graficas_comentarios/ (nubes, hashtags, heatmaps…)."""
     return _out(proyecto, "graficas_comentarios")
 
 
 def dir_multidimensionales(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_comentarios/graficas_multidimensionales/"""
+    """data/{proyecto}/graficas_comentarios/graficas_multidimensionales/"""
     return _out(proyecto, "graficas_comentarios", "graficas_multidimensionales")
 
 
 def dir_patrones(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_comentarios/graficas_patrones_cuentas/"""
+    """data/{proyecto}/graficas_comentarios/graficas_patrones_cuentas/"""
     return _out(proyecto, "graficas_comentarios", "graficas_patrones_cuentas")
 
 
 def dir_polaridad(proyecto: str) -> str:
-    """outputs/{proyecto}/graficas_comentarios/polaridad_ia/"""
+    """data/{proyecto}/graficas_comentarios/polaridad_ia/"""
     return _out(proyecto, "graficas_comentarios", "polaridad_ia")
 
 

@@ -19,7 +19,7 @@ except Exception:
 
 # --- CONFIGURACIÓN ---
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUTPUT_BASE     = os.path.join(BASE_DIR, "outputs")
+OUTPUT_BASE     = os.path.join(BASE_DIR, "data")
 OUTPUT_FOLDER   = OUTPUT_BASE
 LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
 TWITTER_DPI    = 100   # 16×9 inches × 100dpi = 1600×900px
