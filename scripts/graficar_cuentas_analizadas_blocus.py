@@ -1,10 +1,13 @@
 """Gráfica de las cuentas Blocus analizadas: en rojo las que no tienen relación con las demás.
 
-Relación entre cuentas analizadas: una sigue a otra (relaciones.csv) o una comenta/responde
-en las publicaciones de otra (comentarios.csv). No incluye audiencias compartidas.
+Relación entre dos cuentas analizadas: una sigue a la otra o comenta en sus publicaciones, o
+comparten audiencia (usuarios que siguen/son seguidos por ambas o comentan en ambas).
+Rojo: ninguna de las dos cosas con ninguna otra cuenta analizada.
 """
 
 import csv
+import math
+from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
@@ -29,66 +32,96 @@ def leer(ruta):
 def construir():
     cuentas = {c["user_id"]: c["username"] for c in leer(GRAFO / "cuentas.csv") if c["objetivo"]}
     por_nombre = {n: i for i, n in cuentas.items()}
-    aristas = {}  # (origen, destino) -> {"sigue": bool, "comenta": n}
+    directas = {}  # (origen, destino) -> {"sigue": bool, "comenta": n}
+    audiencia = defaultdict(set)  # cuenta -> usuarios que la siguen, que ella sigue o que la comentan
     for r in leer(GRAFO / "relaciones.csv"):
         o, d = r["source"].removeprefix("uid:"), r["target"].removeprefix("uid:")
+        if d in cuentas:
+            audiencia[d].add(o)
+        if o in cuentas:
+            audiencia[o].add(d)
         if o in cuentas and d in cuentas and o != d:
-            aristas.setdefault((o, d), {"sigue": False, "comenta": 0})["sigue"] = True
+            directas.setdefault((o, d), {"sigue": False, "comenta": 0})["sigue"] = True
     for r in leer(COMENT):
         o, d = r["autor_id"], por_nombre.get(r["cuenta_publicadora"])
+        if d:
+            audiencia[d].add(o)
         if o in cuentas and d and o != d:
-            aristas.setdefault((o, d), {"sigue": False, "comenta": 0})["comenta"] += 1
-    return cuentas, aristas
+            directas.setdefault((o, d), {"sigue": False, "comenta": 0})["comenta"] += 1
+    comunes = {}
+    ids = list(cuentas)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            n = len((audiencia[a] & audiencia[b]) - set(ids))
+            if n:
+                comunes[(a, b)] = n
+    return cuentas, directas, comunes, audiencia
 
 
 def main():
-    cuentas, aristas = construir()
+    cuentas, directas, comunes, audiencia = construir()
     g = nx.Graph()
     g.add_nodes_from(cuentas)
-    g.add_edges_from(aristas)
+    g.add_edges_from(directas)
+    g.add_weighted_edges_from((a, b, n) for (a, b), n in comunes.items())
     aislados = sorted((n for n in g if g.degree(n) == 0), key=lambda n: cuentas[n])
     conectados = [n for n in g if g.degree(n) > 0]
-    print(f"{len(cuentas)} cuentas, {len(aristas)} relaciones, {len(aislados)} sin relación")
+    print(f"{len(cuentas)} cuentas, {len(directas)} directas, {len(comunes)} pares con audiencia común, "
+          f"{len(aislados)} sin relación")
 
     fig = plt.figure(figsize=(16, 9), dpi=100, facecolor="white")
-    ax = fig.add_axes([0.02, 0.1, 0.62, 0.78])
+    ax = fig.add_axes([0.0, 0.1, 0.8, 0.78])
     ax.axis("off")
-    ax.set_xlim(-0.35, 1.25)
     sub = g.subgraph(conectados)
-    pos = nx.rescale_layout_dict(nx.spring_layout(sub, seed=7, k=1.2), scale=1)
-    pos = {n: ((x + 1) / 2, y) for n, (x, y) in pos.items()}
-    estilo = {"sigue": ("#1F618D", "-"), "comenta": ("#CA6F1E", "--")}
-    for (o, d), t in aristas.items():
+    orden = sorted(sub, key=lambda n: -sub.degree(n, weight="weight"))
+    orden = orden[0::2] + orden[1::2][::-1]  # las más conectadas a ambos lados, pegadas
+    ang = {n: 2 * math.pi * i / len(orden) for i, n in enumerate(orden)}
+    pos = {n: (0.85 * math.cos(a), 0.85 * math.sin(a)) for n, a in ang.items()}
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.3, 1.3)
+    ax.set_aspect('equal')
+    maximo = max(comunes.values())
+    for (a, b), n in comunes.items():
+        ax.plot(*zip(pos[a], pos[b]), color="#6C7A89", alpha=min(0.7, 0.18 + 1.5 * n / maximo), zorder=1,
+                lw=0.5 + 3.6 * n / maximo)
+    estilo = {"sigue": "#1F618D", "comenta": "#CA6F1E"}
+    for (o, d), t in directas.items():
         for tipo in ("sigue", "comenta"):
             if t[tipo]:
-                color, ls = estilo[tipo]
-                ax.annotate("", xy=pos[d], xytext=pos[o], arrowprops=dict(
-                    arrowstyle="-|>", color=color, ls=ls, lw=1.6, shrinkA=9, shrinkB=9,
-                    connectionstyle="arc3,rad=0.12" if tipo == "sigue" else "arc3,rad=-0.12"))
-    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color="#4A4A4A", node_size=260)
-    nx.draw_networkx_labels(sub, pos, {n: "@" + cuentas[n] for n in sub}, ax=ax,
-                            font_size=8, verticalalignment="bottom", clip_on=False)
+                ax.annotate("", xy=pos[d], xytext=pos[o], zorder=2, arrowprops=dict(
+                    arrowstyle="-|>", color=estilo[tipo], ls="-" if tipo == "sigue" else "--", lw=1.8,
+                    shrinkA=6, shrinkB=6, connectionstyle="arc3,rad=0.2" if tipo == "sigue" else "arc3,rad=-0.2"))
+    tam = {n: 25 + 6 * len(audiencia[n]) ** 0.5 for n in sub}
+    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color="#4A4A4A", node_size=[tam[n] for n in sub])
+    for n in sub:
+        a = ang[n]
+        izq = math.cos(a) < 0
+        ax.text(0.91 * math.cos(a), 0.91 * math.sin(a), "@" + cuentas[n], fontsize=7, va="center",
+                ha="right" if izq else "left", rotation=math.degrees(a) + (180 if izq else 0),
+                rotation_mode="anchor")
 
-    ax2 = fig.add_axes([0.66, 0.1, 0.32, 0.78])
+    ax2 = fig.add_axes([0.8, 0.1, 0.19, 0.78])
     ax2.axis("off")
-    ax2.set_xlim(0, 2)
-    filas = -(-len(aislados) // 2)
-    ax2.set_ylim(-filas - 0.5, 1.2)
-    ax2.text(0, 0.9, f"sin ninguna relación ({len(aislados)})", color="#A93226", fontsize=12, fontweight="bold")
+    ax2.set_xlim(0, 1)
+    ax2.set_ylim(-len(aislados) - 1, 1.5)
+    ax2.text(0, 1.0, f"sin ninguna relación ({len(aislados)})", color="#A93226", fontsize=12, fontweight="bold")
     for i, n in enumerate(aislados):
-        x, y = (i // filas) * 1.0, -(i % filas) - 0.2
-        ax2.scatter(x + 0.05, y, s=70, color="#C0392B", zorder=3)
-        ax2.text(x + 0.12, y, "@" + cuentas[n], va="center", fontsize=8, color="#C0392B")
-
+        y = -i - 0.6
+        ax2.scatter(0.04, y, s=150, color="#C0392B", zorder=3)
+        sin_datos = not audiencia[n]
+        nota = "(sin datos: perfil no disponible)" if sin_datos else f"({len(audiencia[n])} usuarios vinculados)"
+        ax2.text(0.1, y, "@" + cuentas[n] + chr(10) + nota, va="center", fontsize=8, color="#C0392B")
     fig.text(0.04, 0.94, f"cuentas blocus analizadas: {len(cuentas)}, de las que {len(aislados)} no guardan "
-             "relación con las demás", fontsize=17, fontweight="bold", color="#222222")
-    fig.text(0.04, 0.905, "relación = una cuenta sigue a otra, o comenta/responde en sus publicaciones "
-             "(solo entre cuentas analizadas)", fontsize=10.5, color="#555555")
-    n_sig = sum(t["sigue"] for t in aristas.values())
-    n_com = sum(bool(t["comenta"]) for t in aristas.values())
-    fig.text(0.04, 0.07, f"azul continua: sigue a ({n_sig}) · naranja discontinua: comenta en ({n_com}). "
-             "Capturas del 25-26/10/2026. Que no haya relación observada no demuestra que no exista; "
-             "tampoco su presencia demuestra coordinación.", fontsize=8.5, color="#555555", wrap=True)
+             "ninguna relación con las demás", fontsize=17, fontweight="bold", color="#222222")
+    fig.text(0.04, 0.905, "relación = se siguen o se comentan entre sí, o comparten seguidores, seguidos o "
+             "comentaristas (tamaño del nodo: usuarios vinculados)", fontsize=10.5, color="#555555")
+    n_sig = sum(t["sigue"] for t in directas.values())
+    n_com = sum(bool(t["comenta"]) for t in directas.values())
+    fig.text(0.04, 0.05, f"flechas azules: sigue a ({n_sig}) · naranjas: comenta en ({n_com}) · líneas grises: "
+             f"audiencia compartida ({len(comunes)} pares, grosor = nº de usuarios comunes, hasta {maximo}). "
+             "Capturas del 25-26/10/2026.\n"
+             "Que no haya relación observada no demuestra que no exista; "
+             "tampoco su presencia demuestra coordinación.", fontsize=8.5, color="#555555")
     fig.text(0.985, 0.02, "@barripdmx", ha="right", fontsize=8, color="#999999")
     if LOGO.exists():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
