@@ -13,9 +13,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+
 ROOT = Path(__file__).resolve().parents[1]
 USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
 OBJETIVOS = ROOT / "outputs/grafo_blocus_20261025/cuentas.csv"
+RELACIONES = ROOT / "outputs/grafo_blocus_20261025/relaciones.csv"
+COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
 SALIDA = ROOT / "outputs/grafo_blocus_20261025/fechas_creacion_cuentas.png"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 MESES_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -27,12 +31,18 @@ def leer(ruta):
 
 
 def main():
-    objetivos = {c["user_id"] for c in leer(OBJETIVOS) if c["objetivo"]}
+    objetivos = {c["user_id"] for c in leer(OBJETIVOS) if c["objetivo"] and c["username"] not in FALSOS_POSITIVOS}
     usuarios = leer(USUARIOS)
+    audiencia = set()  # seguidores y seguidos: el otro extremo de cada relación con una cuenta válida
+    for r in leer(RELACIONES):
+        o, d = r["source"].removeprefix("uid:"), r["target"].removeprefix("uid:")
+        if o in objetivos or d in objetivos:
+            audiencia.update((o, d))
+    comentan = {r["autor_id"] for r in leer(COMENTARIOS) if r["cuenta_publicadora"] not in FALSOS_POSITIVOS}
     grupos = {
         "cuentas analizadas": [u for u in usuarios if u["user_id"] in objetivos],
-        "seguidores y seguidos de esas cuentas": [u for u in usuarios if u["en_grafo_relaciones"] == "Sí"],
-        "cuentas que comentan": [u for u in usuarios if u["en_grafo_comentarios"] == "Sí"],
+        "seguidores y seguidos de esas cuentas": [u for u in usuarios if u["user_id"] in audiencia],
+        "cuentas que comentan": [u for u in usuarios if u["user_id"] in comentan],
     }
     meses = [(a, m) for a in range(2018, 2027) for m in range(1, 13) if (a, m) <= (2026, 10)]
     fig, axes = plt.subplots(3, 1, figsize=(16, 9), dpi=100, facecolor="white", sharex=True)
@@ -79,6 +89,7 @@ def main():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA)
 

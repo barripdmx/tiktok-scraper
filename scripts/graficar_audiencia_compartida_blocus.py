@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
+from config.blocus import NOTA_FALSOS_POSITIVOS
 from scripts.graficar_cuentas_analizadas_blocus import construir
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,7 @@ def main():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA)
 

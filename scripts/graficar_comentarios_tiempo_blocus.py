@@ -11,6 +11,8 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+
 ROOT = Path(__file__).resolve().parents[1]
 ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
 SALIDA = ROOT / "outputs/comentarios_blocus_20261026/comentarios_por_dia.png"
@@ -24,6 +26,8 @@ def main():
     por_dia = defaultdict(Counter)
     totales = Counter()
     for fila in csv.DictReader(ENTRADA.open(encoding="utf-8-sig", newline="")):
+        if fila["cuenta_publicadora"] in FALSOS_POSITIVOS:
+            continue
         dia = date.fromisoformat(fila["creado_utc"][:10])
         por_dia[dia][fila["cuenta_publicadora"]] += 1
         totales[fila["cuenta_publicadora"]] += 1
@@ -68,6 +72,7 @@ def main():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA, d0, d1, dias[pico], suma[pico])
 

@@ -10,6 +10,8 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+
 ROOT = Path(__file__).resolve().parents[1]
 PUBLICACIONES = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
 USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
@@ -30,6 +32,8 @@ def main():
     fechas = {u["user_id"]: (u["fecha_orden_utc"], u["tipo_fecha"]) for u in leer(USUARIOS)}
     cuentas = {}
     for fila in leer(PUBLICACIONES):
+        if fila["cuenta"] in FALSOS_POSITIVOS:
+            continue
         if fila["autor_id"] and fila["cuenta"] not in cuentas and numero(fila["autor_seguidores"]) is not None:
             fecha, tipo = fechas.get(fila["autor_id"], ("", ""))
             if fecha:
@@ -64,6 +68,7 @@ def main():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA, len(cuentas), recientes)
 

@@ -9,6 +9,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+
 ROOT = Path(__file__).resolve().parents[1]
 ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
 SALIDA = ROOT / "outputs/comentarios_blocus_20261026/paises_y_hashtags.png"
@@ -21,7 +23,7 @@ TOP_PAISES, TOP_CUENTAS, TOP_TAGS = 8, 4, 16
 
 def main():
     with ENTRADA.open(encoding="utf-8-sig", newline="") as f:
-        filas = list(csv.DictReader(f))
+        filas = [fila for fila in csv.DictReader(f) if fila["cuenta"] not in FALSOS_POSITIVOS]
     n_pais = Counter(f["meta_pais_creacion"] for f in filas)
     paises = [p for p, _ in n_pais.most_common(TOP_PAISES)][::-1]
     cuentas = [c for c, _ in Counter(f["cuenta"] for f in filas).most_common(TOP_CUENTAS)]
@@ -68,6 +70,7 @@ def main():
         from matplotlib.offsetbox import AnnotationBbox, OffsetImage
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA)
 

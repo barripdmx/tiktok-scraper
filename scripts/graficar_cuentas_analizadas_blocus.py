@@ -16,6 +16,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+
 ROOT = Path(__file__).resolve().parents[1]
 GRAFO = ROOT / "outputs/grafo_blocus_20261025"
 COMENT = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
@@ -30,7 +32,7 @@ def leer(ruta):
 
 
 def construir():
-    cuentas = {c["user_id"]: c["username"] for c in leer(GRAFO / "cuentas.csv") if c["objetivo"]}
+    cuentas = {c["user_id"]: c["username"] for c in leer(GRAFO / "cuentas.csv") if c["objetivo"] and c["username"] not in FALSOS_POSITIVOS}
     por_nombre = {n: i for i, n in cuentas.items()}
     directas = {}  # (origen, destino) -> {"sigue": bool, "comenta": n}
     audiencia = defaultdict(set)  # cuenta -> usuarios que la siguen, que ella sigue o que la comentan
@@ -128,6 +130,9 @@ def main():
         marca = AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.12),
                                xycoords="figure fraction", frameon=False)
         fig.add_artist(marca)
+    fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
+    ax2.text(0, -len(aislados) - 0.7, "falso positivo, excluidas:" + chr(10) + chr(10).join("@" + c for c in FALSOS_POSITIVOS),
+             fontsize=8, color="#7F8C8D", va="top")
     fig.savefig(SALIDA, facecolor="white")
     print(SALIDA)
 
