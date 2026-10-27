@@ -23,7 +23,7 @@
 | Comentarios, publicaciones, metadatos | `comentarios_blocus_20261026/`, `grafo_comentarios_blocus_20261026/`, `analisis_publicacion_creacion_20261026/` | `publicaciones.csv` (495 × 117 columnas) |
 | Entregas empaquetadas | `outputs/*.zip` | no regenerar sin necesidad |
 
-Basura reconocible: `_pytest_*`, `_codex_*`, `_final_*`, `_legacy`, `data/debug_*` (restos de pruebas).
+Restos de pruebas: `outputs/_legacy/pruebas_codex/` (carpetas `_codex_*`, `_final_*` y scripts `verificar_*`). Las 21 carpetas `outputs/_pytest_*` siguen en `outputs/` porque Windows deniega moverlas (permisos de Codex); se pueden borrar a mano. También `data/debug_*`.
 
 ## Estado de las fechas de creación de perfil
 - **Objetivo cumplido: 5.000 cuentas con fecha de creación confirmada por el perfil** (2.400 de capturas anteriores, más 1.000 + 1.600 de las ampliaciones; la tabla maestra las unifica).
