@@ -111,5 +111,30 @@ Limitaciones:
 - No se guardó el `sec_uid` de las cuentas (el proyecto no lo exporta).
 - Se omitieron `penaltyContext`, `serverABVersions` y `creatorAIComment` (valores internos casi constantes).
 - Las etiquetas internas del MP4 (`vid_md5`, `aigc_info`) no se recogieron: exigen descargar los vídeos. `video_id_tiktok` equivale al `vid` del MP4.
-- En las fotos solo se inspecciona la primera imagen del álbum.
+- Las columnas `img_*` describen solo la primera imagen del álbum; la revisión completa está en las columnas `foto_n_*` (ver abajo).
 - Las estadísticas son las del momento de la captura (27/10/2026, 11:54–12:32 UTC).
+
+### Revisión de todas las imágenes (27/10/2026)
+
+Se revisaron las 263 imágenes de las 139 publicaciones de fotos disponibles, cada una desde los dos servidores del CDN (`p16` y `p19`). Se usaron dos métodos sobre los mismos bytes:
+
+1. Búsqueda de texto (el método anterior), ahora sobre el archivo completo y no solo los primeros 80 KB.
+2. Lectura estructural del JPEG, segmento a segmento: EXIF (IFD0, Exif y GPS), XMP, IPTC dentro de Photoshop 8BIM, perfil de color ICC, JUMBF/C2PA y comentarios.
+
+Además, se calculó el SHA-256 de cada imagen para detectar duplicados. Se intentó también el oEmbed oficial de TikTok, pero respondió `ratelimit triggered` y se dejó.
+
+| Marca | Imágenes | Publicaciones | Cuentas |
+|---|---:|---:|---|
+| `FBMD` (paso por Meta) en IPTC 2:40 | 25 | 25 | `@blocus_actu` |
+| C2PA firmado por TikTok | 16 | 16 | `@blocusespanol`, `@blocus945`, `@blocus.decroisset`, `@blocus._.bristol`, `@blocus036`, `@blocus_op` |
+| EXIF generado por TikTok sin C2PA | 12 | 12 | `@blocus.4000` |
+| Perfil ICC sRGB «Google Inc. 2016» | 52 | 26 | `@luccca93`, `@blocus.lycee.france`, `@blocus307`, `@blocus148`, `@blocus.pix`, `@blocusscpmofrancia` |
+| Sin ninguna marca | 158 | 60 | resto |
+
+- **`FBMD`.** Los dos métodos coinciden y las imágenes son idénticas en ambos servidores. Ninguna imagen posterior de un álbum tiene `FBMD`, así que el dato de la primera imagen era completo. Las 25 publicaciones con `FBMD` son además JPEG progresivos, el formato en que recodifica Meta. Fuera de `@blocus_actu`, solo una imagen de `@luccca93` es progresiva, y sin `FBMD`.
+- **EXIF sin C2PA de `@blocus.4000`.** Tiene la misma lista de etiquetas que el EXIF que acompaña al C2PA de TikTok, y las 12 publicaciones tienen `aigcLabelType 2` en la API. Es la huella del etiquetado de IA de TikTok, pero sin manifiesto.
+- **ICC de Google.** Es el perfil sRGB compacto de Skia (el motor gráfico de Android y Chrome), en versión 4.3 (33 imágenes) o 2.1 (las 19 de `@blocus.lycee.france`). Indica que la imagen se generó o exportó con software de Google (captura o editor de Android, Chrome…) antes de subirla. Es una pista débil: no identifica el dispositivo ni la aplicación.
+- **Duplicados.** `@blocus765` publicó la misma imagen, byte a byte, en `7699587872302697760` y `7700675789028707616`. En un álbum de `@luccca93` (`7680539077766171926`) la primera imagen se repite como tercera.
+- **GPS, fecha de captura, cámara, autor o software.** No aparecen en ninguna de las 263 imágenes.
+
+Columnas añadidas a `publicaciones.csv` (fusión con `scripts/fusionar_revision_fotos_blocus.py`, datos en `revision_fotos.tsv`): `foto_n_revisadas`, `foto_n_fbmd`, `foto_n_c2pa`, `foto_n_xmp`, `foto_n_exif_sin_c2pa`, `foto_icc_google` (n:versión), `foto_n_jpeg_progresivo`, `foto_servidores_identicos`, `foto_sha256_12` (12 primeros hex de cada imagen, en orden) y `foto_duplicada_en`.
