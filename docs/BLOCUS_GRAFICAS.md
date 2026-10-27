@@ -13,11 +13,11 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 | 7 | Creación frente a seguidores de las cuentas publicadoras | `outputs/comentarios_blocus_20261026/cuentas_creacion_seguidores.png` | `graficar_tamano_cuentas_blocus` |
 
 ## Falsos positivos excluidos
-`@blocus328` (comunidad aparentemente haitiana, publicaciones oct 2025-may 2026), `@luccca93` (memes de CapCut en contexto catalán) y `@blocus75000` (fitness y baño, sin relación con las convocatorias) entraron al lote solo por llevar «blocus» en el nombre. Se excluyen de todas las gráficas y se indican en una nota roja al pie. La lista está en `config/blocus.py` (`FALSOS_POSITIVOS`). Los datos crudos y `publicaciones.csv` no se tocan. `@blocusscpmofrancia` (una foto sin texto, 3 seguidores) queda como dudosa y se mantiene. Cifras de abajo ya sin las excluidas.
+`@blocus328` (comunidad aparentemente haitiana, publicaciones oct 2025-may 2026), `@luccca93` (memes de CapCut en contexto catalán) `@blocus75000` (fitness y baño, sin relación con las convocatorias) y `@blocus.es_` (su bio dice que usa el nombre «blocus» por marketing) entraron al lote solo por llevar «blocus» en el nombre. Se excluyen de todas las gráficas y se indican en una nota roja al pie. La lista está en `config/blocus.py` (`FALSOS_POSITIVOS`). Los datos crudos y `publicaciones.csv` no se tocan. Se mantienen como dudosas, sin contenido o sin datos para juzgarlas: `@blocusscpmofrancia`, `@blocus91`, `@blocussgp`, `@blocus.cs` (perfiles con 0 vídeos) y `@blocusasturias`, `@manifestacion_barcelona` (perfil no disponible, código 10221). Cifras de abajo ya sin las excluidas.
 
 ## Hallazgos principales
-1. De las 51 cuentas analizadas, solo 5 no guardan ninguna relación con las demás (`blocus765`, `blocus91`, `blocus_op`, `blocusreus2`, `blocussgp`). Con relación directa (seguir o comentar) solo hay 7 enlaces; la conexión viene sobre todo de audiencia compartida (237 pares de cuentas).
-2. 26 de las 51 cuentas analizadas se crearon en septiembre-octubre de 2026 (18 en octubre). Entre seguidores y comentaristas no hay picos anómalos; el máximo mensual es julio de 2026.
+1. De las 50 cuentas analizadas, solo 5 no guardan ninguna relación con las demás (`blocus765`, `blocus91`, `blocus_op`, `blocusreus2`, `blocussgp`). Con relación directa (seguir o comentar) solo hay 6 enlaces; la conexión viene sobre todo de audiencia compartida (237 pares de cuentas).
+2. 26 de las 50 cuentas analizadas se crearon en septiembre-octubre de 2026 (18 en octubre). Entre seguidores y comentaristas no hay picos anómalos; el máximo mensual es julio de 2026.
 3. Mayor audiencia común: `teamblocus`–`blocussss_` (218 usuarios), `blocussss_`–`blocus_actu` (160), `blocus307`–`ftbl687` (70).
 4. De 318 publicaciones: 159 vídeos, 25 fotos con huella de Meta (casi todas de `blocus_actu`), 28 con etiqueta de IA (sobre todo `blocus.4000`), 70 sin marcas y 36 ya no disponibles.
 5. Comentarios: pico el 17/10/2026 (2.034), por dos vídeos de convocatoria de `blocussss_`. Sin evidencia de coordinación en textos, horarios ni fechas de creación de los 47 autores que comentan en varias cuentas.
@@ -30,5 +30,5 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 - El país de creación lo declara TikTok y puede reflejar VPN.
 
 ## Pendiente
-- Seis cuentas sin publicaciones disponibles (`blocusasturias`, `manifestacion_barcelona`, `blocus91`, `blocussgp`, `blocus.cs`, `blocus.es_`) no se han podido juzgar.
+- Las seis cuentas dudosas no se han podido juzgar (ver arriba); si TikTok vuelve a mostrar `blocusasturias` o `manifestacion_barcelona`, revisarlas.
 - Quedan 45.100 cuentas por consultar en `outputs/fechas_seguidores_orden_inverso_20261027/cola_prioridad.csv`.
