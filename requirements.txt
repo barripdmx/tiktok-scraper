@@ -9,5 +9,6 @@ pysentimiento==0.7.3  # Análisis de sentimiento local (RoBERTa)
 pytest
 python-dotenv==1.2.1
 requests==2.32.5
+curl_cffi==0.16.0    # Listas paginadas de seguidores y seguidos
 seaborn==0.13.2
 wordcloud==1.9.5

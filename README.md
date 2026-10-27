@@ -357,3 +357,8 @@ Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine
 ---
 
 *Desarrollado para periodismo de datos e investigación en redes sociales.*
+
+
+## Seguidores y seguidos
+
+En **1 · Captura**, usa **Seguidores y seguidos** para una cuenta o **Cuentas desde CSV/TXT** para un lote. Ambas opciones permiten elegir followers, following o ambas listas, validar la entrada, guardar CSV/GEXF y abrir el resumen de resultados. Deja el máximo vacío o en `0` para recorrer las páginas disponibles; los contadores y las diferencias quedan registrados. Consulta la [guía de relaciones](docs/RELACIONES_TIKTOK.md) para formatos, salidas y métodos alternativos.
