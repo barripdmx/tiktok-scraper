@@ -44,7 +44,7 @@ DATE_FIELDS = {
     "fin_lista", "observed_at", "creado_utc", "fecha_publicacion_estimada_utc",
 }
 INTEGER_FIELDS = {
-    "posicion_respuesta", "pagina", "posicion_en_pagina", "cuentas_descargadas",
+    "puesto_desde_final_captura", "posicion_respuesta", "pagina", "posicion_en_pagina", "cuentas_descargadas",
     "contador_perfil", "total_api_ultima_pagina", "seguidores_observados_grafo",
     "seguidos_observados_grafo", "cuentas", "contador_inicio", "contador_final",
     "registros_sin_identidad", "paginas_api", "numero_cuentas_objetivo",
@@ -137,6 +137,25 @@ def add_csv_sheet(wb, title, path, extra_fields=(), transform=None):
         return count
 
 
+def add_followers_in_reverse_capture_order(wb, evidence):
+    rows = list(source_rows(SOURCES["ORDEN_FOLLOWERS"]))
+    last_position = {}
+    for row in rows:
+        target = row["objetivo"]
+        last_position[target] = max(last_position.get(target, 0), int(row["posicion_respuesta"]))
+    for row in rows:
+        row["puesto_desde_final_captura"] = last_position[row["objetivo"]] - int(row["posicion_respuesta"]) + 1
+    rows.sort(key=lambda row: (row["puesto_desde_final_captura"], row["objetivo"]))
+    headers = ["puesto_desde_final_captura"] + [key for key in rows[0] if key != "puesto_desde_final_captura"]
+    sheet = wb.create_sheet("ORDEN_FOLLOWERS")
+    add_header(sheet, headers)
+    transform = profile_date_overlay(evidence)
+    for row in rows:
+        row = transform(row)
+        sheet.append([typed_cell(sheet, key, row.get(key, "")) for key in headers])
+    return finish_table(sheet, headers, len(rows))
+
+
 def post_date(row):
     # El ID de vídeo/foto permite estimar un instante; no es metadato oficial.
     try:
@@ -222,7 +241,7 @@ def guide_sheet(wb, counts):
         "USUARIOS_FECHA": "Universo de usuarios unificado y estado de su fecha de creación.",
         "NODOS_RED": "Cuentas presentes en el grafo de seguimiento y sus atributos.",
         "RELACIONES": "Aristas dirigidas de seguimiento observadas.",
-        "ORDEN_FOLLOWERS": "Orden, página, cursores y fechas de cuenta de cada follower capturado.",
+        "ORDEN_FOLLOWERS": "Ordenado desde el final de cada lista capturada hacia el principio, intercalando objetivos. Incluye página, cursores y fecha de la cuenta; no confirma cuándo siguió.",
         "SEGUIDOS": "Cuentas seguidas por al menos una cuenta objetivo; los vínculos individuales están en RELACIONES.",
         "PUBLICACIONES": "Publicaciones observadas y fecha derivada del ID.",
         "COMENTARIOS": "Comentarios y respuestas con autor, publicación y texto.",
@@ -258,6 +277,10 @@ def main():
     counts = {}
     counts["OBJETIVOS"] = objective_sheet(wb)
     for key in ["USUARIOS_FECHA", "NODOS_RED", "RELACIONES", "ORDEN_FOLLOWERS", "SEGUIDOS", "PUBLICACIONES", "COMENTARIOS", "INTERACCIONES", "COBERTURA"]:
+        if key == "ORDEN_FOLLOWERS":
+            counts[key] = add_followers_in_reverse_capture_order(wb, evidence)
+            print(f"{key}: {counts[key]:,}", flush=True)
+            continue
         extra = ["fecha_publicacion_estimada_utc"] if key == "PUBLICACIONES" else []
         transform = post_date if key == "PUBLICACIONES" else profile_date_overlay(evidence) if key in ("NODOS_RED", "ORDEN_FOLLOWERS", "SEGUIDOS") else None
         counts[key] = add_csv_sheet(wb, key, SOURCES[key], extra, transform)
