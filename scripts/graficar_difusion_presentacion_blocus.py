@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from itertools import combinations
 
 import matplotlib.pyplot as plt
+from matplotlib.patheffects import withStroke
 import networkx as nx
 from matplotlib.patches import Patch
 
@@ -52,6 +53,41 @@ def relaciones():
     return sigue, comenta, compartidos, multi
 
 
+def colocar_etiquetas(fig, ax, pos, tam, cuadro=None):
+    """Pone «@cuenta» junto a cada nodo en la posición libre más cercana (sin pisar nodos, otras etiquetas ni el cuadro)."""
+    fig.canvas.draw()
+    rend = fig.canvas.get_renderer()
+    k = fig.dpi / 72
+    nodos = {n: (ax.transData.transform(p), (tam[n] ** 0.5 / 2 + 2) * k) for n, p in pos.items()}
+    ocupado = [cuadro.get_window_extent(rend)] if cuadro is not None else []
+    cajas = {}
+    candidatos = [(9, 5, "left", "bottom"), (9, -5, "left", "top"), (-9, 5, "right", "bottom"), (-9, -5, "right", "top"),
+                  (0, 11, "center", "bottom"), (0, -11, "center", "top"), (16, 14, "left", "bottom"), (-16, 14, "right", "bottom"),
+                  (16, -14, "left", "top"), (-16, -14, "right", "top"), (0, 22, "center", "bottom"), (0, -22, "center", "top")]
+    area = ax.get_window_extent(rend)
+    for n in sorted(pos, key=lambda x: -tam[x]):
+        mejor = None
+        for dx, dy, ha, va in candidatos:
+            t = ax.annotate("@" + n, pos[n], xytext=(dx, dy), textcoords="offset points", ha=ha, va=va, fontsize=8, zorder=7,
+                            path_effects=[withStroke(linewidth=3, foreground="white")])
+            b = t.get_window_extent(rend).expanded(1.04, 1.1)
+            choques = sum(b.overlaps(o) for o in ocupado) + sum(b.overlaps(c) for c in cajas.values())
+            for m, ((cx, cy), r) in nodos.items():
+                if b.x0 - r < cx < b.x1 + r and b.y0 - r < cy < b.y1 + r:
+                    choques += 1
+            fuera = not (area.x0 <= b.x0 and b.x1 <= area.x1 and area.y0 <= b.y0 and b.y1 <= area.y1)
+            puntos = choques + (3 if fuera else 0)
+            if mejor is None or puntos < mejor[0]:
+                if mejor is not None:
+                    mejor[1].remove()
+                mejor = (puntos, t, b)
+            else:
+                t.remove()
+            if puntos == 0:
+                break
+        cajas[n] = mejor[2]
+
+
 def grafica_8(por_tema=False):
     sigue, comenta, compartidos, multi = relaciones()
     tema = temas() if por_tema else {}
@@ -59,7 +95,7 @@ def grafica_8(por_tema=False):
     g = nx.Graph()
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
-    pos = nx.spring_layout(g, seed=11, k=1.1, iterations=300)
+    pos = nx.spring_layout(g, seed=11, k=2.4, iterations=400)
     fig, ax = nueva("difusión entre cuentas por tema: Francia, España y cuentas comunes" if por_tema else "difusión entre cuentas: enlaces documentados",
                     f"{g.number_of_nodes()} cuentas con al menos un enlace observado; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
@@ -73,27 +109,34 @@ def grafica_8(por_tema=False):
     for a, b in comenta:
         ax.annotate("", xy=pos[b], xytext=pos[a], zorder=2, arrowprops=dict(arrowstyle="-|>", color=NARANJA, lw=2, ls="--",
                     shrinkA=9, shrinkB=9, connectionstyle="arc3,rad=-0.15"))
+    ax.set_position([0.03, 0.13, 0.74, 0.75])
+    xs, ys = [p[0] for p in pos.values()], [p[1] for p in pos.values()]
+    ax.set_xlim(min(xs) - 0.25, max(xs) + 0.3)
+    ax.set_ylim(min(ys) - 0.15, max(ys) + 0.35)
     autor, c1, c2 = RECORRIDO
+    cuadro = None
     if c1 in pos and c2 in pos:
         ax.plot(*zip(pos[c1], pos[c2]), color=c_recorrido, lw=3.2, zorder=3)
         xm, ym = (pos[c1][0] + pos[c2][0]) / 2, (pos[c1][1] + pos[c2][1]) / 2
-        ax.annotate(f"@{autor} publica el mismo texto en ambas\n(20/10: 14:47 y 17:05 UTC): pide compartir la cuenta",
-                    (xm, ym), xytext=(-250, 45), textcoords="offset points", fontsize=8.5, color=c_recorrido,
-                    arrowprops=dict(arrowstyle="-", color=c_recorrido, lw=0.8),
-                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=c_recorrido))
+        cuadro = ax.annotate(f"@{autor} publica el mismo texto en ambas" + chr(10) + "(20/10: 14:47 y 17:05 UTC): pide compartir la cuenta",
+                             (xm, ym), xytext=(0.62, 0.95), textcoords="axes fraction", ha="center", va="top", fontsize=8.5,
+                             color=c_recorrido, arrowprops=dict(arrowstyle="-", color=c_recorrido, lw=0.8),
+                             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=c_recorrido), zorder=6)
     grado = dict(g.degree())
-    ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[60 + 40 * grado[n] for n in g],
+    tam = {n: 60 + 40 * grado[n] for n in g}
+    ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[tam[n] for n in g],
                color=[COLOR_TEMA[tema.get(n, "sin clasificar")] if por_tema else GRIS for n in g], zorder=4)
-    for n in g:
-        ax.annotate("@" + n, pos[n], xytext=(7, 7), textcoords="offset points", fontsize=8, zorder=5)
+    colocar_etiquetas(fig, ax, pos, tam, cuadro)
     aristas = [Patch(color=c_sigue, label="sigue a (flecha)"), Patch(color=NARANJA, label="comenta en (flecha discontinua)"),
                Patch(color="#9AA5AE", label="autores comunes (grosor = nº de autores)"),
                Patch(color=c_recorrido, label="recorrido de un texto repetido")]
     if por_tema:
         n = Counter(tema.get(x, "sin clasificar") for x in g)
         nodos = [Patch(color=COLOR_TEMA[t], label=f"tema {t} ({n[t]})") for t in ("francés", "español", "común") if n[t]]
-        ax.add_artist(ax.legend(handles=nodos, loc="lower left", frameon=False, fontsize=10, title="color del nodo"))
-    ax.legend(handles=aristas, loc="lower right", frameon=False, fontsize=9)
+        fig.legend(handles=nodos, loc="upper left", bbox_to_anchor=(0.79, 0.78), frameon=False, fontsize=10, title="color del nodo",
+                   alignment="left")
+    fig.legend(handles=aristas, loc="upper left", bbox_to_anchor=(0.79, 0.52 if por_tema else 0.78), frameon=False, fontsize=9,
+               title="líneas", alignment="left")
     guardar(fig, "08_difusion_por_tema.png" if por_tema else "08_difusion_entre_cuentas.png")
 
 
