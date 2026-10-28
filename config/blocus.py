@@ -61,6 +61,15 @@ else:
                              + ", ".join("@" + c for c in DUDOSAS) + ".")
 
 
+def primera_publicacion_espana():
+    """(fecha UTC, cuenta) de la publicación más antigua de las cuentas de tema español; la fecha sale del ID (id >> 32)."""
+    from datetime import datetime, timezone
+    tema = tema_de_cuentas()
+    pubs = [r for r in _leer(ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv") if tema.get(r["cuenta"]) == "español"]
+    primera = min(pubs, key=lambda r: int(r["id"]))
+    return datetime.fromtimestamp(int(primera["id"]) >> 32, timezone.utc), primera["cuenta"]
+
+
 def destino(ruta):
     """Ruta de salida: en el ámbito España, el mismo nombre de archivo dentro de outputs/ambito_espana_20261028/."""
     if AMBITO != "espana":

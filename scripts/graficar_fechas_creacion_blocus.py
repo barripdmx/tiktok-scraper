@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, primera_publicacion_espana, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
 USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
@@ -73,6 +73,13 @@ def main():
         ax.annotate(f"pico: {MESES_ES[meses[pico][1] - 1]} {meses[pico][0]} ({total:,})".replace(",", "."),
                     (pico, total), xytext=(-10, -4), textcoords="offset points", ha="right", va="top", fontsize=8.5, color="#A93226",
                     bbox=dict(boxstyle="round,pad=0.3", fc="#F7F7F7", ec="#CCCCCC"))
+    primera, cuenta_primera = primera_publicacion_espana()
+    i = meses.index((primera.year, primera.month))
+    x_primera = i - 0.5 + (primera.day - 1 + primera.hour / 24) / 31  # posición dentro de la barra del mes
+    for ax in axes:
+        ax.axvline(x_primera, color="#C0392B", lw=0.8, zorder=4)
+    axes[0].annotate(f"primera publicación sobre España: {primera:%d/%m/%Y} (@{cuenta_primera})", (x_primera, 0.62), xycoords=("data", "axes fraction"),
+                     xytext=(-14, 0), textcoords="offset points", ha="right", va="center", fontsize=8.5, color="#C0392B")
     axes[0].legend(loc="upper left", fontsize=8, frameon=False)
     marcas = [i for i, (a, m) in enumerate(meses) if m == 1]
     axes[-1].set_xticks(marcas)
