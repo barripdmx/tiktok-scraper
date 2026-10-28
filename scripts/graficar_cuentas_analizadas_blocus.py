@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GRAFO = ROOT / "outputs/grafo_blocus_20261025"
 COMENT = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
 SALIDA = GRAFO / "cuentas_analizadas_relaciones.png"
+HILO = ROOT / "outputs/Hilo_twitter_blocus_españa"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 FONDO_CAJA = dict(boxstyle="round,pad=0.5", fc="#F7F7F7", ec="#CCCCCC")
 
@@ -72,7 +73,7 @@ def main():
           f"{len(aislados)} sin relación")
 
     fig = plt.figure(figsize=(16, 9), dpi=100, facecolor="white")
-    ax = fig.add_axes([0.0, 0.1, 0.8, 0.78])
+    ax = fig.add_axes([0.0, 0.1, 0.8, 0.72])
     ax.axis("off")
     sub = g.subgraph(conectados)
     orden = sorted(sub, key=lambda n: -sub.degree(n, weight="weight"))
@@ -109,20 +110,25 @@ def main():
     ax2 = fig.add_axes([0.8, 0.1, 0.19, 0.78])
     ax2.axis("off")
     ax2.set_xlim(0, 1)
-    ax2.set_ylim(-len(aislados) - 1, 1.5)
+    ax2.set_ylim(0, 1)
     color_aislado = "#555555" if por_tema else "#C0392B"
-    ax2.text(0, 1.0, f"sin ninguna relación ({len(aislados)})", color=color_aislado, fontsize=12, fontweight="bold")
-    for i, n in enumerate(aislados):
-        y = -i - 0.6
-        ax2.scatter(0.04, y, s=150, color=color_aislado, zorder=3)
-        sin_datos = not audiencia[n]
-        nota = "(sin datos: perfil no disponible)" if sin_datos else f"({len(audiencia[n])} usuarios vinculados)"
-        ax2.text(0.1, y, "@" + cuentas[n] + chr(10) + nota, va="center", fontsize=8, color=color_aislado)
+    ax2.text(0, 0.98, f"cuentas analizadas ({len(cuentas)})", fontsize=12, fontweight="bold", color="#222222")
+    ax2.text(0, 0.94, f"en rojo, sin ninguna relación ({len(aislados)})" if not por_tema else
+             f"en negrita, sin ninguna relación ({len(aislados)})", fontsize=8.5, color=color_aislado)
+    todas = sorted(cuentas, key=lambda n: cuentas[n].lower())
+    filas = (len(todas) + 1) // 2
+    for i, n in enumerate(todas):
+        x, y = 0.04 + 0.5 * (i // filas), 0.89 - 0.030 * (i % filas)
+        aislada = n in aislados
+        col = color_aislado if aislada else (COLOR_TEMA[tema.get(cuentas[n], "sin clasificar")] if por_tema else "#4A4A4A")
+        ax2.scatter(x, y, s=14, color=col, zorder=3)
+        ax2.text(x + 0.03, y, "@" + cuentas[n], va="center", fontsize=7, color=col, fontweight="bold" if aislada else "normal")
     etiqueta = "de España" if por_tema else "analizadas"
     fig.text(0.04, 0.94, f"cuentas blocus {etiqueta}: {len(cuentas)}, de las que {len(aislados)} no guardan "
              "ninguna relación con las demás", fontsize=17, fontweight="bold", color="#222222")
-    fig.text(0.04, 0.905, "relación = se siguen o se comentan entre sí, o comparten seguidores, seguidos o "
-             "comentaristas (tamaño del nodo: usuarios vinculados)", fontsize=10.5, color="#555555")
+    fig.text(0.04, 0.905, "con relación = se siguen o se comentan entre sí, o comparten usuarios (seguidores, seguidos o comentaristas) · "
+             "tamaño del nodo: usuarios vinculados" + chr(10) + "sin relación = ninguna otra cuenta analizada la sigue ni la comenta, y sus "
+             "usuarios no coinciden con los de ninguna otra", fontsize=10.5, color="#555555", va="top")
     n_sig = sum(t["sigue"] for t in directas.values())
     n_com = sum(bool(t["comenta"]) for t in directas.values())
     fig.text(0.04, 0.05, f"flechas azules: sigue a ({n_sig}) · naranjas: comenta en ({n_com}) · líneas grises: "
@@ -137,10 +143,13 @@ def main():
                                xycoords="figure fraction", frameon=False)
         fig.add_artist(marca)
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    ax2.text(0, -len(aislados) - 0.7, "falso positivo, excluidas:" + chr(10) + chr(10).join("@" + c for c in FALSOS_POSITIVOS_BASE),
+    ax2.text(0, 0.1, "falso positivo, excluidas:" + chr(10) + chr(10).join("@" + c for c in FALSOS_POSITIVOS_BASE),
              fontsize=8, color="#7F8C8D", va="top")
     fig.savefig(destino(SALIDA), facecolor="white")
     print(destino(SALIDA))
+    if not AMBITO:  # la imagen 01 del hilo es la de las 50 cuentas, no la del ámbito España
+        HILO.mkdir(parents=True, exist_ok=True)
+        fig.savefig(HILO / "01_cuentas_analizadas_relaciones.png", facecolor="white")
 
 
 if __name__ == "__main__":

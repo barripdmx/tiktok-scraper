@@ -30,6 +30,11 @@ ES = set("los las del para por con una es vamos españa espana huelga manifestac
 PALABRA = re.compile(r"[a-zà-ÿñ']+")
 
 
+# Revisión manual: el recuento de palabras la dejaba como «común», pero sus 22 publicaciones tratan de Francia
+# (#french, #manifest) y sus comentarios, en inglés, portugués y ruso, hablan de Francia, Macron y París; ninguno de España.
+REVISADAS = {"ftbl687": "revisión manual: contenido sobre Francia, sin publicaciones sobre España"}
+
+
 def leer(ruta):
     with ruta.open(encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f))
@@ -70,6 +75,8 @@ def clasificar():
             tema, motivo, confianza = "francés", f"país de creación {pais} (sin texto)", "baja"
         else:
             tema, motivo, confianza = "sin clasificar", "sin evidencia", "—"
+        if cuenta in REVISADAS:
+            tema, motivo, confianza = "francés", REVISADAS[cuenta], "alta"
         filas.append({"cuenta": cuenta, "tema": tema, "confianza": confianza, "palabras_fr": f, "palabras_es": e,
                       "pais_creacion": pais, "motivo": motivo})
     return filas

@@ -49,8 +49,11 @@ FUERA_DE_AMBITO = _fuera_de_ambito()
 # Lo que las gráficas excluyen de los datos (en el ámbito España, también todo lo que no es español ni común).
 FALSOS_POSITIVOS = FALSOS_POSITIVOS_BASE + FUERA_DE_AMBITO
 if AMBITO == "espana":
-    NOTA_FALSOS_POSITIVOS = (f"Ámbito España: solo cuentas de tema español (rojo) y común (verde, @ftbl687); se excluyen "
-                             f"{len(FUERA_DE_AMBITO)} cuentas de tema francés o sin clasificar y los falsos positivos "
+    _comunes = [c for c, t in tema_de_cuentas().items() if t == "común"]
+    NOTA_FALSOS_POSITIVOS = ("Ámbito España: solo cuentas de tema español (rojo)"
+                             + (f" y común (verde, {', '.join('@' + c for c in _comunes)})" if _comunes else "")
+                             + f"; se excluyen {len(FUERA_DE_AMBITO)} cuentas de tema francés o sin clasificar (entre ellas @ftbl687, "
+                             "cuyo contenido trata de Francia) y los falsos positivos "
                              + ", ".join("@" + c for c in FALSOS_POSITIVOS_BASE) + ".")
 else:
     NOTA_FALSOS_POSITIVOS = ("Excluidas por falso positivo (solo comparten el nombre «blocus»): "

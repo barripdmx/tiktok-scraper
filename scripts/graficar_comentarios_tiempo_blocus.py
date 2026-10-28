@@ -33,7 +33,7 @@ def main():
         totales[fila["cuenta_publicadora"]] += 1
     principales = [c for c, _ in totales.most_common(TOP)]
     antes = sum(sum(c.values()) for d, c in por_dia.items() if d < DESDE)
-    d0, d1 = DESDE, max(por_dia)
+    d0, d1 = (min(por_dia) if AMBITO == "espana" else DESDE), max(por_dia)
     dias = [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
     series = {c: [por_dia[d][c] for d in dias] for c in principales}
     series["otras cuentas"] = [sum(v for k, v in por_dia[d].items() if k not in principales) for d in dias]
@@ -71,9 +71,9 @@ def main():
     fig.text(0.04, 0.94, f"cuándo se escribieron los {n:,} comentarios capturados".replace(",", "."),
              fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, f"comentarios y respuestas por día (UTC) en las publicaciones de las cuentas blocus, "
-             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}" + ("; cuentas de tema español en rojo y @ftbl687 (común) en verde" if AMBITO == "espana" else f"; las {TOP} cuentas con más comentarios por separado"),
+             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}" + ("; solo publicaciones de cuentas de tema español (28 publicaciones)" if AMBITO == "espana" else f"; las {TOP} cuentas con más comentarios por separado"),
              fontsize=10.5, color="#555555")
-    fig.text(0.04, 0.03, f"Se omiten {antes} comentarios anteriores al {DESDE:%d/%m/%Y}. Solo comentarios capturados el 26/10/2026; las publicaciones con comentarios parciales "
+    fig.text(0.04, 0.03, (f"Se omiten {antes} comentarios anteriores al {DESDE:%d/%m/%Y}. " if antes else "") + f"Solo comentarios capturados el 26/10/2026; las publicaciones con comentarios parciales "
              "subrepresentan su actividad. Un pico indica una publicación muy comentada, no coordinación.",
              fontsize=8.5, color="#555555")
     fig.text(0.985, 0.02, "@barripdmx", ha="right", fontsize=8, color="#999999")
@@ -84,6 +84,10 @@ def main():
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
     rotular_ambito(fig)
     fig.savefig(destino(SALIDA), facecolor="white")
+    if AMBITO == "espana":
+        hilo = ROOT / "outputs/Hilo_twitter_blocus_españa"
+        hilo.mkdir(parents=True, exist_ok=True)
+        fig.savefig(hilo / "03_comentarios_por_dia.png", facecolor="white")
     print(destino(SALIDA), d0, d1, dias[pico], suma[pico])
 
 
