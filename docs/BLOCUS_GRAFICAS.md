@@ -32,3 +32,14 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 ## Pendiente
 - Las seis cuentas dudosas no se han podido juzgar (ver arriba); si TikTok vuelve a mostrar `blocusasturias` o `manifestacion_barcelona`, revisarlas.
 - Quedan 45.100 cuentas por consultar en `outputs/fechas_seguidores_orden_inverso_20261027/cola_prioridad.csv`.
+
+## Tema de las cuentas: Francia, España y común (28/10/2026)
+`scripts/tema_cuentas_blocus.py` clasifica las cuentas por el idioma de lo que publican y de sus comentarios
+(palabras distintivas en francés y español; sin texto, por país de creación o por el grupo `referencia_espana`) y escribe
+`outputs/grafo_blocus_20261025/tema_cuentas.csv` con la confianza de cada cuenta. Es una clasificación heurística.
+- 47 cuentas: 32 francesas, 14 españolas y 1 común (`ftbl687`, comentarios en ambos idiomas).
+- Peso del tema español: 28 de 318 publicaciones (8,8 %), 250 de 10.434 comentarios (2,4 %) y 162 autores únicos.
+  Ningún autor comenta a la vez en cuentas francesas y españolas. `ftbl687` concentra 3.988 comentarios.
+- `outputs/presentacion_blocus_20261028/08_difusion_por_tema.png`: el grafo de difusión con los nodos en azul (francés),
+  rojo (español) y verde (común). Forma dos grupos separados; el único enlace entre ellos pasa por `ftbl687`
+  (autores comunes con `@blocusespanol`). 6 de los 7 nodos españoles del grafo ya no están disponibles en TikTok.

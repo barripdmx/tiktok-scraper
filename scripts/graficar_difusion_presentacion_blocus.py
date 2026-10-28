@@ -4,7 +4,7 @@ import csv
 import math
 import statistics
 from datetime import datetime
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import combinations
 
 import matplotlib.pyplot as plt
@@ -13,11 +13,13 @@ from matplotlib.patches import Patch
 
 from config.blocus import FALSOS_POSITIVOS
 from scripts.analisis_emojis_blocus import cargar, resumen
+from scripts.tema_cuentas_blocus import temas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, nueva
 
 GRAFO = ROOT / "outputs/grafo_blocus_20261025"
 COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
 USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
+COLOR_TEMA = {"francés": "#1F618D", "español": "#C0392B", "común": "#1E8449", "sin clasificar": "#7F8C8D"}
 RECORRIDO = ("volem.graduacio", "blocuses", "manifestacion_barcelona")  # autor y las dos cuentas donde repite el texto
 
 
@@ -50,13 +52,15 @@ def relaciones():
     return sigue, comenta, compartidos, multi
 
 
-def grafica_8():
+def grafica_8(por_tema=False):
     sigue, comenta, compartidos, multi = relaciones()
+    tema = temas() if por_tema else {}
+    c_sigue, c_recorrido = ("#222222", "#7D3C98") if por_tema else (AZUL, ROJO)
     g = nx.Graph()
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
     pos = nx.spring_layout(g, seed=11, k=1.1, iterations=300)
-    fig, ax = nueva("difusión entre cuentas: enlaces documentados",
+    fig, ax = nueva("difusión entre cuentas por tema: Francia, España y cuentas comunes" if por_tema else "difusión entre cuentas: enlaces documentados",
                     f"{g.number_of_nodes()} cuentas con al menos un enlace observado; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
                     "en varias cuentas no demuestra coordinación. Los enlaces entre cuentas son pocos.")
@@ -64,28 +68,33 @@ def grafica_8():
     for (a, b), n in compartidos.items():
         ax.plot(*zip(pos[a], pos[b]), color="#9AA5AE", lw=min(0.8 + 1.4 * n, 8), alpha=0.6, zorder=1)
     for a, b in sigue:
-        ax.annotate("", xy=pos[b], xytext=pos[a], zorder=2, arrowprops=dict(arrowstyle="-|>", color=AZUL, lw=2,
+        ax.annotate("", xy=pos[b], xytext=pos[a], zorder=2, arrowprops=dict(arrowstyle="-|>", color=c_sigue, lw=2,
                     shrinkA=9, shrinkB=9, connectionstyle="arc3,rad=0.15"))
     for a, b in comenta:
         ax.annotate("", xy=pos[b], xytext=pos[a], zorder=2, arrowprops=dict(arrowstyle="-|>", color=NARANJA, lw=2, ls="--",
                     shrinkA=9, shrinkB=9, connectionstyle="arc3,rad=-0.15"))
     autor, c1, c2 = RECORRIDO
     if c1 in pos and c2 in pos:
-        ax.plot(*zip(pos[c1], pos[c2]), color=ROJO, lw=3.2, zorder=3)
+        ax.plot(*zip(pos[c1], pos[c2]), color=c_recorrido, lw=3.2, zorder=3)
         xm, ym = (pos[c1][0] + pos[c2][0]) / 2, (pos[c1][1] + pos[c2][1]) / 2
         ax.annotate(f"@{autor} publica el mismo texto en ambas\n(20/10: 14:47 y 17:05 UTC): pide compartir la cuenta",
-                    (xm, ym), xytext=(-250, 45), textcoords="offset points", fontsize=8.5, color=ROJO,
-                    arrowprops=dict(arrowstyle="-", color=ROJO, lw=0.8),
-                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=ROJO))
+                    (xm, ym), xytext=(-250, 45), textcoords="offset points", fontsize=8.5, color=c_recorrido,
+                    arrowprops=dict(arrowstyle="-", color=c_recorrido, lw=0.8),
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=c_recorrido))
     grado = dict(g.degree())
-    ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[60 + 40 * grado[n] for n in g], color=GRIS, zorder=4)
+    ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[60 + 40 * grado[n] for n in g],
+               color=[COLOR_TEMA[tema.get(n, "sin clasificar")] if por_tema else GRIS for n in g], zorder=4)
     for n in g:
         ax.annotate("@" + n, pos[n], xytext=(7, 7), textcoords="offset points", fontsize=8, zorder=5)
-    ax.legend(handles=[Patch(color=AZUL, label="sigue a (flecha)"), Patch(color=NARANJA, label="comenta en (flecha discontinua)"),
-                       Patch(color="#9AA5AE", label="autores comunes (grosor = nº de autores)"),
-                       Patch(color=ROJO, label="recorrido de un texto repetido")],
-              loc="lower right", frameon=False, fontsize=9)
-    guardar(fig, "08_difusion_entre_cuentas.png")
+    aristas = [Patch(color=c_sigue, label="sigue a (flecha)"), Patch(color=NARANJA, label="comenta en (flecha discontinua)"),
+               Patch(color="#9AA5AE", label="autores comunes (grosor = nº de autores)"),
+               Patch(color=c_recorrido, label="recorrido de un texto repetido")]
+    if por_tema:
+        n = Counter(tema.get(x, "sin clasificar") for x in g)
+        nodos = [Patch(color=COLOR_TEMA[t], label=f"tema {t} ({n[t]})") for t in ("francés", "español", "común") if n[t]]
+        ax.add_artist(ax.legend(handles=nodos, loc="lower left", frameon=False, fontsize=10, title="color del nodo"))
+    ax.legend(handles=aristas, loc="lower right", frameon=False, fontsize=9)
+    guardar(fig, "08_difusion_por_tema.png" if por_tema else "08_difusion_entre_cuentas.png")
 
 
 def grafica_10():
@@ -145,4 +154,5 @@ def grafica_10():
 
 if __name__ == "__main__":
     grafica_8()
+    grafica_8(por_tema=True)
     grafica_10()
