@@ -27,3 +27,22 @@ perfil) y comparación por identificador numérico (`user_id`), que no cambia nu
   publicaciones. Una cuenta que borra y publica a la vez puede mantener el mismo contador.
 - Para afinar: una instantánea periódica por cuenta (identificador, usuario, nombre, bio, contadores, privacidad y
   lista de publicaciones por ID) y su comparación con la anterior.
+
+## Actualización 28/10 (tarde): causa de las 7 cuentas desaparecidas
+- **Corrección:** el código 10221 no significa «retirada o suspendida». TikTok lo devuelve también para un @ que nunca
+  existió (probado con nombres inventados), así que solo dice que no hay cuenta con ese @ hoy (borrada, retirada o con @
+  cambiado). El 10202 no se pudo reproducir con nombres inventados y su sentido sigue sin documentar.
+- **Evidencia para 4 cuentas** (`blocusespanol`, `blocusmanifestacionmdrz`, `blocusasturias`, `manifestacion_barcelona`):
+  sus publicaciones capturadas devuelven 10204 con mensajes `status_audit_not_pass`, `author_status`, `content_classification`
+  o `status_self_see`, mientras las de una cuenta viva (`blocussss_`) cargan con su autor. Lectura más probable: retirada por
+  moderación de TikTok, no cambio de @ (con un @ nuevo las publicaciones seguirían visibles). Los textos son internos de TikTok
+  y su sentido es una interpretación. Las publicaciones de `blocusasturias` y `manifestacion_barcelona` ya estaban caídas
+  el 26/10, antes que el perfil.
+- **No determinable** (`blocus.madrid`, `blocussalgeciras`, `blocus.mallorca`): sin publicaciones capturadas con las que contrastar.
+- **Nombres públicos cambiados** (el @ no cambió en ninguna): `blo.cus2026`, `intrvbll4057` (letras decorativas → texto normal),
+  `blocus8322` (blocus❌ → Laquika), `blocusn1` (Blocus → SLL), `ftbl687` (BLOCUS → _______).
+- **¿Se puede localizar un @ nuevo?** Sí, por el ID de una publicación: TikTok resuelve la publicación aunque el @ de la
+  dirección sea otro (probado con un @ inventado y con la publicación de `blocussss_`) y devuelve el @ actual del autor.
+  Con las publicaciones de las 4 cuentas caídas no apareció ningún @ nuevo (devuelven 10204), así que no parecen un simple
+  cambio de @. Para `blocus.madrid`, `blocussalgeciras` y `blocus.mallorca` no hay publicaciones capturadas; quedaría
+  recapturar listas de seguidores/seguidos de otras cuentas y buscar su `user_id`.
