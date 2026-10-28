@@ -39,8 +39,10 @@ perfil) y comparación por identificador numérico (`user_id`), que no cambia nu
   y su sentido es una interpretación. Las publicaciones de `blocusasturias` y `manifestacion_barcelona` ya estaban caídas
   el 26/10, antes que el perfil.
 - **No determinable** (`blocus.madrid`, `blocussalgeciras`, `blocus.mallorca`): sin publicaciones capturadas con las que contrastar.
-- **Nombres públicos cambiados** (el @ no cambió en ninguna): `blo.cus2026`, `intrvbll4057` (letras decorativas → texto normal),
-  `blocus8322` (blocus❌ → Laquika), `blocusn1` (Blocus → SLL), `ftbl687` (BLOCUS → _______).
+- **Nombres públicos cambiados** (el @ no cambió en ninguna): `blocus8322` (blocus❌ → Laquika), `blocusn1` (Blocus → SLL) y
+  `ftbl687` (BLOCUS → _______). `blo.cus2026` e `intrvbll4057` conservan «𝐁𝐥𝐨𝐜𝐮𝐬» en letras matemáticas: una primera
+  comparación las dio como cambiadas por error (la instantánea guardaba el texto normalizado); se recomprobó el 28/10 con el
+  texto directo del perfil. Ambas tienen la misma cadena, bio vacía, idioma fr y avatares distintos.
 - **¿Se puede localizar un @ nuevo?** Sí, por el ID de una publicación: TikTok resuelve la publicación aunque el @ de la
   dirección sea otro (probado con un @ inventado y con la publicación de `blocussss_`) y devuelve el @ actual del autor.
   Con las publicaciones de las 4 cuentas caídas no apareció ningún @ nuevo (devuelven 10204), así que no parecen un simple

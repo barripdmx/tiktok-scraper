@@ -94,7 +94,7 @@ def grafica_11(filas):
             ax.plot([0, 1], [y - 0.5] * 2, color="#F0F0F0", lw=0.6)
     fig.text(0.04, 0.06, "Se compara el identificador numérico de cada cuenta con su @ y su nombre público actuales: ningún @ cambió en las 47 cuentas que cargan. "
              "Las 7 desaparecidas se explican en la imagen siguiente.", fontsize=8.5, color=GRIS)
-    fig.text(0.04, 0.035, "Nombre público = apodo editable. @blo.cus2026 e @intrvbll4057 pasaron de letras decorativas a texto normal. "
+    fig.text(0.04, 0.035, "Nombre público = apodo editable. @blo.cus2026 e @intrvbll4057 llevan «Blocus» en letras matemáticas en negrita, igual que al capturarlas (sin cambio). "
              "Solo se detectan cambios entre la captura y el 28/10.", fontsize=8.5, color=GRIS)
     guardar(fig, "11_estado_cuentas.png")
 
