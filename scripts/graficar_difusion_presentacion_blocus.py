@@ -12,7 +12,7 @@ from matplotlib.patheffects import withStroke
 import networkx as nx
 from matplotlib.patches import Patch
 
-from config.blocus import FALSOS_POSITIVOS
+from config.blocus import AMBITO, FALSOS_POSITIVOS
 from scripts.analisis_emojis_blocus import cargar, resumen
 from scripts.tema_cuentas_blocus import temas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, nueva
@@ -96,7 +96,7 @@ def grafica_8(por_tema=False):
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
     pos = nx.spring_layout(g, seed=11, k=2.4, iterations=400)
-    fig, ax = nueva("difusión entre cuentas por tema: Francia, España y cuentas comunes" if por_tema else "difusión entre cuentas: enlaces documentados",
+    fig, ax = nueva(("difusión entre cuentas de España: tema español y común" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia, España y cuentas comunes") if por_tema else "difusión entre cuentas: enlaces documentados",
                     f"{g.number_of_nodes()} cuentas con al menos un enlace observado; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
                     "en varias cuentas no demuestra coordinación. Los enlaces entre cuentas son pocos.")
@@ -198,4 +198,5 @@ def grafica_10():
 if __name__ == "__main__":
     grafica_8()
     grafica_8(por_tema=True)
-    grafica_10()
+    if AMBITO != "espana":  # la matriz de hallazgos describe casos concretos del conjunto completo
+        grafica_10()

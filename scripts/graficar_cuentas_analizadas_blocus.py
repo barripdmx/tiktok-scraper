@@ -16,7 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, FALSOS_POSITIVOS_BASE, NOTA_FALSOS_POSITIVOS, destino, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
 GRAFO = ROOT / "outputs/grafo_blocus_20261025"
@@ -94,11 +94,15 @@ def main():
                     arrowstyle="-|>", color=estilo[tipo], ls="-" if tipo == "sigue" else "--", lw=1.8,
                     shrinkA=6, shrinkB=6, connectionstyle="arc3,rad=0.2" if tipo == "sigue" else "arc3,rad=-0.2"))
     tam = {n: 25 + 6 * len(audiencia[n]) ** 0.5 for n in sub}
-    nx.draw_networkx_nodes(sub, pos, ax=ax, node_color="#4A4A4A", node_size=[tam[n] for n in sub])
+    tema = tema_de_cuentas()
+    por_tema = AMBITO == "espana"
+    nx.draw_networkx_nodes(sub, pos, ax=ax, node_size=[tam[n] for n in sub], node_color=[
+        COLOR_TEMA[tema.get(cuentas[n], "sin clasificar")] if por_tema else "#4A4A4A" for n in sub])
     for n in sub:
         a = ang[n]
         izq = math.cos(a) < 0
-        ax.text(0.91 * math.cos(a), 0.91 * math.sin(a), "@" + cuentas[n], fontsize=7, va="center",
+        rho = 0.9 + 0.0045 * tam[n] ** 0.5
+        ax.text(rho * math.cos(a), rho * math.sin(a), "@" + cuentas[n], fontsize=7, va="center",
                 ha="right" if izq else "left", rotation=math.degrees(a) + (180 if izq else 0),
                 rotation_mode="anchor")
 
@@ -106,14 +110,16 @@ def main():
     ax2.axis("off")
     ax2.set_xlim(0, 1)
     ax2.set_ylim(-len(aislados) - 1, 1.5)
-    ax2.text(0, 1.0, f"sin ninguna relación ({len(aislados)})", color="#A93226", fontsize=12, fontweight="bold")
+    color_aislado = "#555555" if por_tema else "#C0392B"
+    ax2.text(0, 1.0, f"sin ninguna relación ({len(aislados)})", color=color_aislado, fontsize=12, fontweight="bold")
     for i, n in enumerate(aislados):
         y = -i - 0.6
-        ax2.scatter(0.04, y, s=150, color="#C0392B", zorder=3)
+        ax2.scatter(0.04, y, s=150, color=color_aislado, zorder=3)
         sin_datos = not audiencia[n]
         nota = "(sin datos: perfil no disponible)" if sin_datos else f"({len(audiencia[n])} usuarios vinculados)"
-        ax2.text(0.1, y, "@" + cuentas[n] + chr(10) + nota, va="center", fontsize=8, color="#C0392B")
-    fig.text(0.04, 0.94, f"cuentas blocus analizadas: {len(cuentas)}, de las que {len(aislados)} no guardan "
+        ax2.text(0.1, y, "@" + cuentas[n] + chr(10) + nota, va="center", fontsize=8, color=color_aislado)
+    etiqueta = "de España" if por_tema else "analizadas"
+    fig.text(0.04, 0.94, f"cuentas blocus {etiqueta}: {len(cuentas)}, de las que {len(aislados)} no guardan "
              "ninguna relación con las demás", fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, "relación = se siguen o se comentan entre sí, o comparten seguidores, seguidos o "
              "comentaristas (tamaño del nodo: usuarios vinculados)", fontsize=10.5, color="#555555")
@@ -131,10 +137,10 @@ def main():
                                xycoords="figure fraction", frameon=False)
         fig.add_artist(marca)
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    ax2.text(0, -len(aislados) - 0.7, "falso positivo, excluidas:" + chr(10) + chr(10).join("@" + c for c in FALSOS_POSITIVOS),
+    ax2.text(0, -len(aislados) - 0.7, "falso positivo, excluidas:" + chr(10) + chr(10).join("@" + c for c in FALSOS_POSITIVOS_BASE),
              fontsize=8, color="#7F8C8D", va="top")
-    fig.savefig(SALIDA, facecolor="white")
-    print(SALIDA)
+    fig.savefig(destino(SALIDA), facecolor="white")
+    print(destino(SALIDA))
 
 
 if __name__ == "__main__":

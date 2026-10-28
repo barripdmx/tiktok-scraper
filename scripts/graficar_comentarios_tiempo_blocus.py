@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
@@ -37,12 +37,21 @@ def main():
     dias = [d0 + timedelta(days=i) for i in range((d1 - d0).days + 1)]
     series = {c: [por_dia[d][c] for d in dias] for c in principales}
     series["otras cuentas"] = [sum(v for k, v in por_dia[d].items() if k not in principales) for d in dias]
+    colores = COLORES
+    if AMBITO == "espana":  # solo dos series: cuentas de tema español (rojo) y cuentas comunes (verde)
+        tema = tema_de_cuentas()
+        comunes = [c for c in totales if tema.get(c) == "común"]
+        series = {f"cuentas de tema español ({sum(v for c, v in totales.items() if c not in comunes):,})".replace(",", "."):
+                  [sum(v for k, v in por_dia[d].items() if k not in comunes) for d in dias]}
+        for c in comunes:
+            series[f"@{c} (común, {totales[c]:,})".replace(",", ".")] = [por_dia[d][c] for d in dias]
+        colores = [COLOR_TEMA["español"], COLOR_TEMA["común"]]
     fig, ax = plt.subplots(figsize=(16, 9), dpi=100, facecolor="white")
     fig.subplots_adjust(left=0.06, right=0.97, top=0.82, bottom=0.12)
     base = [0] * len(dias)
-    for (c, vals), color in zip(series.items(), COLORES):
+    for (c, vals), color in zip(series.items(), colores):
         ax.bar(dias, vals, bottom=base, color=color, width=0.85,
-               label=f"@{c} ({totales[c]:,})".replace(",", ".") if c in totales else c)
+               label=(f"@{c} ({totales[c]:,})".replace(",", ".") if c in totales else c))
         base = [a + b for a, b in zip(base, vals)]
     ax.grid(axis="y", color="#EBEBEB")
     ax.set_axisbelow(True)
@@ -62,7 +71,7 @@ def main():
     fig.text(0.04, 0.94, f"cuándo se escribieron los {n:,} comentarios capturados".replace(",", "."),
              fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, f"comentarios y respuestas por día (UTC) en las publicaciones de las cuentas blocus, "
-             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}; las {TOP} cuentas con más comentarios por separado",
+             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}" + ("; cuentas de tema español en rojo y @ftbl687 (común) en verde" if AMBITO == "espana" else f"; las {TOP} cuentas con más comentarios por separado"),
              fontsize=10.5, color="#555555")
     fig.text(0.04, 0.03, f"Se omiten {antes} comentarios anteriores al {DESDE:%d/%m/%Y}. Solo comentarios capturados el 26/10/2026; las publicaciones con comentarios parciales "
              "subrepresentan su actividad. Un pico indica una publicación muy comentada, no coordinación.",
@@ -73,8 +82,9 @@ def main():
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    fig.savefig(SALIDA, facecolor="white")
-    print(SALIDA, d0, d1, dias[pico], suma[pico])
+    rotular_ambito(fig)
+    fig.savefig(destino(SALIDA), facecolor="white")
+    print(destino(SALIDA), d0, d1, dias[pico], suma[pico])
 
 
 if __name__ == "__main__":

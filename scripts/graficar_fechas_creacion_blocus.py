@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
 USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
@@ -90,8 +90,9 @@ def main():
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    fig.savefig(SALIDA, facecolor="white")
-    print(SALIDA)
+    rotular_ambito(fig)
+    fig.savefig(destino(SALIDA), facecolor="white")
+    print(destino(SALIDA))
 
 
 if __name__ == "__main__":

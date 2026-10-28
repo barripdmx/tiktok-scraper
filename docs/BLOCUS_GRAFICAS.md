@@ -43,3 +43,11 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 - `outputs/presentacion_blocus_20261028/08_difusion_por_tema.png`: el grafo de difusión con los nodos en azul (francés),
   rojo (español) y verde (común). Forma dos grupos separados; el único enlace entre ellos pasa por `ftbl687`
   (autores comunes con `@blocusespanol`). 6 de los 7 nodos españoles del grafo ya no están disponibles en TikTok.
+
+## Ámbito España (28/10/2026)
+Con `BLOCUS_AMBITO=espana` (variable de entorno) cada script limita la gráfica a las cuentas de tema español (rojo) y
+común (verde, `@ftbl687`) y la guarda en `outputs/ambito_espana_20261028/` (mismos nombres de archivo). Ejemplo:
+`BLOCUS_AMBITO=espana python -m scripts.graficar_cuentas_analizadas_blocus`. Los scripts de emojis y la matriz de
+hallazgos no se generan en este ámbito (@teamblocus es francés). Excluye 35 cuentas de tema francés o sin clasificar.
+- 15 cuentas, 50 publicaciones (35 ya no disponibles) y 4.238 comentarios; `@ftbl687` aporta 3.988 de esos comentarios.
+- 4 de 15 cuentas creadas en oct. 2026; 4 enlaces directos de seguimiento; 30 pares con audiencia común; 1 cuenta sin relación (`blocusreus2`).

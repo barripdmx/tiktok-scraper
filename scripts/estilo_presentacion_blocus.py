@@ -8,7 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 
-from config.blocus import NOTA_FALSOS_POSITIVOS
+from config.blocus import NOTA_FALSOS_POSITIVOS, destino, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
 DESTINO = ROOT / "outputs/presentacion_blocus_20261028"
@@ -40,8 +40,9 @@ def limpiar(ax, rejilla="y"):
 
 
 def guardar(fig, nombre):
-    DESTINO.mkdir(parents=True, exist_ok=True)
-    ruta = DESTINO / nombre
+    rotular_ambito(fig)
+    ruta = destino(DESTINO / nombre)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(ruta, facecolor="white")
     plt.close(fig)
     print(ruta)

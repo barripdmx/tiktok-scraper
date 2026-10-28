@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLICACIONES = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
@@ -41,9 +41,10 @@ def main():
                                            numero(fila["autor_me_gusta"]) or 0, tipo)
     fig, ax = plt.subplots(figsize=(16, 9), dpi=100, facecolor="white")
     fig.subplots_adjust(left=0.07, right=0.97, top=0.82, bottom=0.12)
+    tema = tema_de_cuentas()
     for nombre, (f, seg, meg, tipo) in cuentas.items():
         conf = tipo == "Confirmada por perfil"
-        ax.scatter(f, max(seg, 1), s=25 + 2.2 * meg ** 0.5, color="#1F618D" if conf else "#9DB7CF", alpha=0.8,
+        ax.scatter(f, max(seg, 1), s=25 + 2.2 * meg ** 0.5, color=(COLOR_TEMA[tema.get(nombre, "sin clasificar")] if AMBITO == "espana" else "#1F618D") if conf else "#9DB7CF", alpha=0.8,
                    edgecolor="white", zorder=3)
         if seg >= 700 or meg >= 20000:
             ax.annotate(f"@{nombre}", (f, max(seg, 1)), xytext=(6, 4), textcoords="offset points", fontsize=8)
@@ -59,7 +60,7 @@ def main():
     fig.text(0.04, 0.94, f"cuentas blocus publicadoras: creación y tamaño ({len(cuentas)} cuentas)",
              fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, f"{recientes} se crearon desde septiembre de 2026; tamaño del punto = me gusta totales "
-             "de la cuenta; azul oscuro = fecha confirmada por el perfil, claro = estimada", fontsize=10.5, color="#555555")
+             "de la cuenta; " + ("rojo = tema español, verde = común; tono claro = fecha estimada" if AMBITO == "espana" else "azul oscuro = fecha confirmada por el perfil, claro = estimada"), fontsize=10.5, color="#555555")
     fig.text(0.04, 0.03, "Seguidores y me gusta declarados por TikTok en los metadatos de la publicación (26-27/10/2026). "
              "Fecha de creación: perfil cuando se consultó; si no, UID >> 32 (aproximación).",
              fontsize=8.5, color="#555555")
@@ -69,8 +70,9 @@ def main():
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    fig.savefig(SALIDA, facecolor="white")
-    print(SALIDA, len(cuentas), recientes)
+    rotular_ambito(fig)
+    fig.savefig(destino(SALIDA), facecolor="white")
+    print(destino(SALIDA), len(cuentas), recientes)
 
 
 if __name__ == "__main__":

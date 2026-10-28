@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
@@ -57,6 +57,10 @@ def main():
         izq = [a + b for a, b in zip(izq, vals)]
     for y, c in enumerate(orden):
         ax.text(izq[y] + 0.5, y, str(izq[y]), va="center", fontsize=8, color="#555555")
+    if AMBITO == "espana":  # nombre de cada cuenta en el color de su tema
+        tema = tema_de_cuentas()
+        for lab in ax.get_yticklabels():
+            lab.set_color(COLOR_TEMA[tema.get(lab.get_text(), "sin clasificar")])
     ax.grid(axis="x", color="#EBEBEB")
     ax.set_axisbelow(True)
     for lado in ("top", "right"):
@@ -77,8 +81,9 @@ def main():
         fig.add_artist(AnnotationBbox(OffsetImage(plt.imread(LOGO), zoom=0.05, alpha=0.2), (0.945, 0.93),
                                       xycoords="figure fraction", frameon=False))
     fig.text(0.04, 0.005, NOTA_FALSOS_POSITIVOS, fontsize=8.5, color="#A93226")
-    fig.savefig(SALIDA, facecolor="white")
-    print(SALIDA, dict(total))
+    rotular_ambito(fig)
+    fig.savefig(destino(SALIDA), facecolor="white")
+    print(destino(SALIDA), dict(total))
 
 
 if __name__ == "__main__":

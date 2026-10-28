@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import matplotlib.dates as mdates
 
-from config.blocus import FALSOS_POSITIVOS
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, tema_de_cuentas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, miles, nueva
 
 SALIDA = ROOT / "outputs/comentarios_blocus_20261026"
@@ -59,7 +59,8 @@ def grafica_1(pubs, coms):
     a1.set_ylim(0, techo)
     for dia in CONVOCATORIAS:
         a1.text(date(2026, 10, dia) + timedelta(days=0.25), techo * 0.98,
-                f"{dia}/10\ncitada en {m_desc[dia]} descripciones\ny {m_com[dia]} comentarios", fontsize=8.5, color=ROJO,
+                f"{dia}/10\ncitada en {m_desc[dia]} " + ("descripción" if m_desc[dia] == 1 else "descripciones")
+                + f"\ny {m_com[dia]} " + ("comentario" if m_com[dia] == 1 else "comentarios"), fontsize=8.5, color=ROJO,
                 va="top", ha="left")
     a2.set_xlim(DESDE - timedelta(days=1), date(2026, 11, 5))
     a2.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
@@ -72,9 +73,9 @@ def grafica_3(pubs):
     for r in pubs:
         por_cuenta[r["cuenta"]]["octubre" if fecha_id(r["id"]) >= OCTUBRE else "antes"] += 1
     top = sorted(por_cuenta, key=lambda c: -sum(por_cuenta[c].values()))[:10][::-1]
-    fig, ax = nueva("las 10 cuentas con más publicaciones, separadas por fecha",
+    fig, ax = nueva(f"las {len(top)} cuentas con más publicaciones, separadas por fecha",
                     f"publicaciones desde el 1 de octubre de 2026 frente a fechas anteriores (de {miles(len(pubs))} publicaciones)"
-                    + ("; ninguna de las 10 publicó antes de octubre" if not any(por_cuenta[c]["antes"] for c in top) else ""),
+                    + (f"; ninguna de las {len(top)} publicó antes de octubre" if not any(por_cuenta[c]["antes"] for c in top) else ""),
                     "Fecha de cada publicación: ID >> 32. Una cuenta con mucho contenido anterior a octubre no lidera la "
                     "movilización actual.")
     ant = [por_cuenta[c]["antes"] for c in top]
@@ -87,6 +88,10 @@ def grafica_3(pubs):
     ax.set_xlim(0, max(a + o for a, o in zip(ant, oct_)) * 1.25)
     fig.subplots_adjust(left=0.15)
     limpiar(ax, "x")
+    if AMBITO == "espana":  # nombre de cada cuenta en el color de su tema
+        tema = tema_de_cuentas()
+        for lab in ax.get_yticklabels():
+            lab.set_color(COLOR_TEMA[tema.get(lab.get_text(), "sin clasificar")])
     guardar(fig, "03_top10_cuentas.png")
 
 
