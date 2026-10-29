@@ -47,7 +47,7 @@ Tests: `pytest tests/` (deben pasar todos antes de subir).
 - Títulos, subtítulos, notas y títulos de panel **empiezan siempre por mayúscula** (lo fuerza `config/acabado_graficas.py` en cada `savefig` de las gráficas Blocus); estadística destacada con `ax.text` + `_STAT_BOX`
 - Watermark TikTok con `_add_watermark(ax)` (zoom=0.05, alpha=0.2, esquina inferior derecha)
 - Los pies no pisan la gráfica ni la firma: si chocan, la gráfica se reduce por abajo (o el pie baja de tamaño). Las leyendas van donde no tapen datos ni pies (si molestan, encima del panel a la derecha). Todo ello lo aplica el acabado automático; tras cambiar una gráfica, revisar la imagen.
-- Hilo de Blocus: `python -m scripts.generar_hilo_blocus` regenera y numera las 17 gráficas en `data/blocus/graficas/Hilo_twitter_blocus_españa/` (las anteriores pasan a `_anteriores/`)
+- Hilo de Blocus: `python -m scripts.generar_hilo_blocus` regenera y numera las 19 gráficas en `data/blocus/graficas/Hilo_twitter_blocus_españa/` (las anteriores pasan a `_anteriores/`)
 - Nubes con banda de título: `GridSpec(3, 2, height_ratios=[0.06, 0.88, 0.06])`; nunca `add_patch`/`ax.text` dentro del eje del wordcloud
 - Informe HTML: autocontenido (imágenes base64), paleta TikTok (`#010101`, `#fe2c55`, `#25f4ee`), fecha en español vía `MESES_ES`
 

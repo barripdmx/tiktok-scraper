@@ -96,7 +96,7 @@ def grafica_8(por_tema=False):
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
     pos = nx.spring_layout(g, seed=11, k=2.4, iterations=400)
-    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia, España y cuentas comunes") if por_tema else "difusión entre cuentas: enlaces documentados",
+    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia y España") if por_tema else "difusión entre cuentas: enlaces documentados",
                     f"{g.number_of_nodes()} cuentas con al menos un enlace observado; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
                     "en varias cuentas no demuestra coordinación. Los enlaces entre cuentas son pocos.")

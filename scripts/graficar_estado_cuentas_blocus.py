@@ -96,7 +96,7 @@ def grafica_11(filas):
              "Las 7 desaparecidas se explican en la imagen siguiente.", fontsize=8.5, color=GRIS)
     fig.text(0.04, 0.035, "Nombre público = apodo editable. @blo.cus2026 e @intrvbll4057 llevan «Blocus» en letras matemáticas en negrita, igual que al capturarlas (sin cambio). "
              "Solo se detectan cambios entre la captura y el 28/10.", fontsize=8.5, color=GRIS)
-    guardar(fig, "13_estado_cuentas.png")
+    guardar(fig, "15_estado_cuentas.png")
 
 
 def grafica_12():
@@ -128,7 +128,7 @@ def grafica_12():
              + "no distingue borrado, baneo o cambio de @. Los mensajes de estado (status_audit_not_pass, content_classification, author_status) son textos" + nl
              + "internos de TikTok sin documentación: su sentido es una interpretación por el nombre. TikTok no dice quién actuó ni por qué regla.",
              fontsize=8.5, color=GRIS, va="top", linespacing=1.5)
-    guardar(fig, "14_cuentas_desaparecidas.png")
+    guardar(fig, "16_cuentas_desaparecidas.png")
 
 
 if __name__ == "__main__":
