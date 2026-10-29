@@ -17,7 +17,7 @@ data/{proyecto}/
   graficas_comentarios/              ← nubes, + graficas_multidimensionales/, graficas_patrones_cuentas/, polaridad_ia/
 ```
 - **`config/rutas.py` es la única fuente de rutas** (`derivar_proyecto`, `dir_informes`, `dir_publicaciones`, `dir_grafo`…). No escribir rutas a mano.
-- `outputs/` ya no se usa: solo quedan `_legacy`, `taller_tiktok` y material sin proyecto en `data/` (operadores_2024, partidos_politicos_2024, graficas_redes, graphics). Blocus vive en `data/blocus/{datos,graficas,estudios,entregas}`.
+- `outputs/` ya no se usa: solo quedan `_legacy`, `taller_tiktok`, `graficas_redes`, `graphics` y los duplicados de sanchezcastejon y southport. Blocus vive en `data/blocus/{datos,graficas,estudios,entregas}`.
 - `secrets/` (cookies/sesión de TikTok) y `config/.env` (claves API): nunca leer, imprimir ni versionar.
 - `drivers/` perfiles persistentes de Chromium (Playwright). `assets/tiktok_logo.jpg` watermark de gráficas.
 
