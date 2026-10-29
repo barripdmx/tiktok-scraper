@@ -73,7 +73,7 @@ def main():
           f"{len(aislados)} sin relación")
 
     fig = plt.figure(figsize=(16, 9), dpi=100, facecolor="white")
-    ax = fig.add_axes([0.0, 0.1, 0.8, 0.68])
+    ax = fig.add_axes([0.0, 0.1, 0.76, 0.68])
     ax.axis("off")
     sub = g.subgraph(conectados)
     orden = sorted(sub, key=lambda n: -sub.degree(n, weight="weight"))
@@ -107,7 +107,7 @@ def main():
                 ha="right" if izq else "left", rotation=math.degrees(a) + (180 if izq else 0),
                 rotation_mode="anchor")
 
-    ax2 = fig.add_axes([0.8, 0.1, 0.19, 0.78])
+    ax2 = fig.add_axes([0.76, 0.1, 0.19, 0.78])
     ax2.axis("off")
     ax2.set_xlim(0, 1)
     ax2.set_ylim(0, 1)
@@ -118,7 +118,7 @@ def main():
     todas = sorted(cuentas, key=lambda n: cuentas[n].lower())
     filas = (len(todas) + 1) // 2
     for i, n in enumerate(todas):
-        x, y = 0.04 + 0.5 * (i // filas), 0.89 - 0.030 * (i % filas)
+        x, y = 0.04 + 0.53 * (i // filas), 0.89 - 0.030 * (i % filas)
         aislada = n in aislados
         col = color_aislado if aislada else (COLOR_TEMA[tema.get(cuentas[n], "sin clasificar")] if por_tema else "#4A4A4A")
         ax2.scatter(x, y, s=14, color=col, zorder=3)

@@ -19,7 +19,7 @@ AZUL, ROJO, NARANJA, GRIS, CLARO = "#1F618D", "#A93226", "#CA6F1E", "#4A4A4A", "
 def nueva(titulo, subtitulo, nota, filas=1, columnas=1, **kw):
     """Figura 16:9 con título, subtítulo y pie. Devuelve (fig, ejes)."""
     fig, ejes = plt.subplots(filas, columnas, figsize=(16, 9), dpi=100, facecolor="white", **kw)
-    fig.subplots_adjust(left=0.07, right=0.97, top=0.8, bottom=0.14)
+    fig.subplots_adjust(left=0.075, right=0.945, top=0.8, bottom=0.14)  # dentro del margen del 5 %
     fig.text(0.04, 0.94, titulo, fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, subtitulo, fontsize=10.5, color="#555555")
     fig.text(0.04, 0.035, nota, fontsize=8.5, color="#555555")
