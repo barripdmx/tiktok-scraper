@@ -71,14 +71,15 @@ def main():
         pico = max(range(len(meses)), key=lambda i: conf[meses[i]] + est[meses[i]])
         total = conf[meses[pico]] + est[meses[pico]]
         ax.annotate(f"pico: {MESES_ES[meses[pico][1] - 1]} {meses[pico][0]} ({total:,})".replace(",", "."),
-                    (pico, total), xytext=(-10, -4), textcoords="offset points", ha="right", va="top", fontsize=8.5, color="#A93226",
+                    (pico, total), xytext=(0, 6), textcoords="offset points", ha="center", va="bottom", fontsize=8.5, color="#A93226",
                     bbox=dict(boxstyle="round,pad=0.3", fc="#F7F7F7", ec="#CCCCCC"))
+        ax.set_ylim(top=ax.get_ylim()[1] * 1.15)
     primera, cuenta_primera = primera_publicacion_espana()
     i = meses.index((primera.year, primera.month))
     x_primera = i - 0.5 + (primera.day - 1 + primera.hour / 24) / 31  # posición dentro de la barra del mes
     for ax in axes:
         ax.axvline(x_primera, color="#C0392B", lw=0.8, zorder=4)
-    axes[0].annotate(f"primera publicación sobre España: {primera:%d/%m/%Y} (@{cuenta_primera})", (x_primera, 0.62), xycoords=("data", "axes fraction"),
+    axes[0].annotate(f"Primera publicación sobre España: {primera:%d/%m/%Y} (@{cuenta_primera})", (x_primera, 0.62), xycoords=("data", "axes fraction"),
                      xytext=(-14, 0), textcoords="offset points", ha="right", va="center", fontsize=8.5, color="#C0392B")
     axes[0].legend(loc="upper left", fontsize=8, frameon=False)
     marcas = [i for i, (a, m) in enumerate(meses) if m == 1]

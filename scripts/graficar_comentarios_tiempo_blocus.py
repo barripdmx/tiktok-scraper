@@ -64,8 +64,9 @@ def main():
     suma = [sum(v[i] for v in series.values()) for i in range(len(dias))]
     pico = max(range(len(dias)), key=suma.__getitem__)
     ax.annotate(f"pico: {dias[pico]:%d/%m/%Y} ({suma[pico]:,})".replace(",", "."), (dias[pico], suma[pico]),
-                xytext=(-14, -2), textcoords="offset points", ha="right", va="top", fontsize=9, color="#A93226",
+                xytext=(0, 6), textcoords="offset points", ha="center", va="bottom", fontsize=9, color="#A93226",
                 bbox=dict(boxstyle="round,pad=0.3", fc="#F7F7F7", ec="#CCCCCC"))
+    ax.set_ylim(top=ax.get_ylim()[1] * 1.12)  # hueco para el rótulo del pico sobre la barra
     ax.legend(loc="upper left", fontsize=9, frameon=False)
     n = sum(totales.values())
     fig.text(0.04, 0.94, f"cuándo se escribieron los {n:,} comentarios capturados".replace(",", "."),

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import matplotlib.dates as mdates
 
-from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, tema_de_cuentas
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, primera_publicacion_espana, tema_de_cuentas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, miles, nueva
 
 SALIDA = ROOT / "data/blocus/datos/comentarios_blocus_20261026"
@@ -62,6 +62,13 @@ def grafica_1(pubs, coms):
                 f"{dia}/10\ncitada en {m_desc[dia]} " + ("descripción" if m_desc[dia] == 1 else "descripciones")
                 + f"\ny {m_com[dia]} " + ("comentario" if m_com[dia] == 1 else "comentarios"), fontsize=8.5, color=ROJO,
                 va="top", ha="left")
+    if AMBITO == "espana":  # la primera publicación sobre España, en trazo continuo para distinguirla de las convocatorias
+        primera, cuenta = primera_publicacion_espana()
+        for ax in (a1, a2):
+            ax.axvline(primera.date() + timedelta(days=0.4), color="#222222", lw=1.2)
+        a1.text(primera.date() - timedelta(days=0.3), techo * 0.98,
+                f"Primera publicación sobre España\n{primera:%d/%m/%Y %H:%M} UTC, @{cuenta}",
+                fontsize=8.5, color="#222222", va="top", ha="right", fontweight="bold")
     a2.set_xlim(DESDE - timedelta(days=1), date(2026, 11, 5))
     a2.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m"))
     a2.xaxis.set_major_locator(mdates.DayLocator(interval=2))

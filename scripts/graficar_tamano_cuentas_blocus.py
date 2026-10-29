@@ -60,7 +60,7 @@ def main():
     fig.text(0.04, 0.94, f"cuentas blocus publicadoras: creación y tamaño ({len(cuentas)} cuentas)",
              fontsize=17, fontweight="bold", color="#222222")
     fig.text(0.04, 0.905, f"{recientes} se crearon desde septiembre de 2026; tamaño del punto = me gusta totales "
-             "de la cuenta; " + ("rojo = tema español, verde = común; tono claro = fecha estimada" if AMBITO == "espana" else "azul oscuro = fecha confirmada por el perfil, claro = estimada"), fontsize=10.5, color="#555555")
+             "de la cuenta; " + ("rojo = tema español; tono claro = fecha estimada" if AMBITO == "espana" else "azul oscuro = fecha confirmada por el perfil, claro = estimada"), fontsize=10.5, color="#555555")
     fig.text(0.04, 0.03, "Seguidores y me gusta declarados por TikTok en los metadatos de la publicación (26-27/10/2026). "
              "Fecha de creación: perfil cuando se consultó; si no, UID >> 32 (aproximación).",
              fontsize=8.5, color="#555555")

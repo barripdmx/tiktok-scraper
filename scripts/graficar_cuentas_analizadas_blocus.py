@@ -73,7 +73,7 @@ def main():
           f"{len(aislados)} sin relación")
 
     fig = plt.figure(figsize=(16, 9), dpi=100, facecolor="white")
-    ax = fig.add_axes([0.0, 0.1, 0.8, 0.72])
+    ax = fig.add_axes([0.0, 0.1, 0.8, 0.68])
     ax.axis("off")
     sub = g.subgraph(conectados)
     orden = sorted(sub, key=lambda n: -sub.degree(n, weight="weight"))

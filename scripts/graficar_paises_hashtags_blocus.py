@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
+from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRADA = ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones.csv"
@@ -28,11 +28,10 @@ def main():
     paises = [p for p, _ in n_pais.most_common(TOP_PAISES)][::-1]
     cuentas = [c for c, _ in Counter(f["cuenta"] for f in filas).most_common(TOP_CUENTAS)]
     colores = COLORES
-    if AMBITO == "espana":  # dos grupos: tema español (rojo) y común (verde)
-        tema = tema_de_cuentas()
-        grupo = lambda c: "@ftbl687 (común)" if tema.get(c) == "común" else "cuentas de tema español"
-        cuentas = ["cuentas de tema español", "@ftbl687 (común)"]
-        colores = [COLOR_TEMA["español"], COLOR_TEMA["común"]]
+    if AMBITO == "espana":  # un solo grupo: las cuentas de tema español (rojo)
+        grupo = lambda c: "cuentas de tema español"
+        cuentas = ["cuentas de tema español"]
+        colores = [COLOR_TEMA["español"]]
     else:
         grupo = lambda c: c if c in cuentas else "otras cuentas"
     por_pais = defaultdict(Counter)

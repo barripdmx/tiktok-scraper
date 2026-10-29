@@ -87,3 +87,8 @@ def rotular_ambito(fig):
     for t in fig.texts:
         if t.get_fontsize() == 17 and SUFIJO_TITULO not in t.get_text():
             t.set_text(t.get_text() + SUFIJO_TITULO)
+
+
+from config.acabado_graficas import instalar  # noqa: E402  (acabado común de todas las gráficas: mayúsculas, pies, leyendas)
+
+instalar()

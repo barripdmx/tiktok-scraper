@@ -1,13 +1,13 @@
 # Proyecto Blocus — índice de datos y estado (27/10/2026)
 
-`outputs/` y `data/` no se versionan. Este índice dice dónde está cada cosa.
+`data/` no se versiona. Todo Blocus cuelga de `data/blocus/{datos,graficas,estudios,entregas}`. Este índice dice dónde está cada cosa.
 
 ## Datos crudos (`data/`)
 - `data/blocus/datos/lote_blocus_20261025T195208Z/`: captura de relaciones (seguidores/seguidos) de las 38 cuentas analizadas.
   `user_<cuenta>/relaciones/`, `lotes_relaciones/<intento>/`, `evidencias_orden/` (páginas JSON de la respuesta web, con el orden original) y `actividad.log`.
   Además: `cuentas_analizadas_20_seguidores_mas_antiguos_observados.csv/.xlsx`, `grafo_*.png`, `coment_*.png`.
 
-## Resultados (`outputs/`), por tema
+## Resultados (`data/blocus/datos/`, `graficas/`, `estudios/`), por tema
 | Tema | Carpeta | Contenido clave |
 |---|---|---|
 | Selección de cuentas | `cuentas_blocus_20261025/` | criterios, candidatas, scripts de análisis del lote |
@@ -21,7 +21,9 @@
 | Libro para Gemini/Argon | `gemini_argon_blocus_20261027/` | `blocus_datos_gemini_argon.xlsx` (generado por `scripts/exportar_gemini_argon.py`) |
 | Grafo de relaciones | `grafo_blocus_20261025/` | |
 | Comentarios, publicaciones, metadatos | `comentarios_blocus_20261026/`, `grafo_comentarios_blocus_20261026/`, `analisis_publicacion_creacion_20261026/` | `publicaciones.csv` (495 × 117 columnas) |
-| Entregas empaquetadas | `outputs/*.zip` | no regenerar sin necesidad |
+| Entregas empaquetadas | `data/blocus/entregas/*.zip` | no regenerar sin necesidad |
+| **Hilo de Twitter** | `graficas/Hilo_twitter_blocus_españa/` | 17 gráficas numeradas; `python -m scripts.generar_hilo_blocus` |
+| **Informe OSINT, nexos con Francia** | `estudios/informe_osint_nexos_francia/INFORME.md` | cifras en `nexos_francia.json` (`scripts/analisis_nexos_francia_blocus.py`) |
 
 Restos de pruebas: `outputs/_legacy/pruebas_codex/` (carpetas `_codex_*`, `_final_*` y scripts `verificar_*`). Las 21 carpetas `outputs/_pytest_*` siguen en `outputs/` porque Windows deniega moverlas (permisos de Codex); se pueden borrar a mano. También `data/debug_*`.
 
