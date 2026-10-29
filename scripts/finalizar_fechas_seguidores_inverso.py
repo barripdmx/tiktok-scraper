@@ -11,7 +11,7 @@ from scripts.exportar_gemini_argon import main as rebuild_workbook
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "outputs" / "fechas_seguidores_orden_inverso_20261027"
+OUT = ROOT / "data" / "blocus" / "datos" / "fechas_seguidores_orden_inverso_20261027"
 CACHE = OUT / "consultas_por_id.json"
 CSV = OUT / "fechas_confirmadas_orden_inverso.csv"
 FIELDS = ["user_id", "username_consultado", "username_devuelto", "objetivo",

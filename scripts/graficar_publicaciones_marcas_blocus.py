@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
-SALIDA = ROOT / "outputs/comentarios_blocus_20261026/publicaciones_marcas.png"
+ENTRADA = ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones.csv"
+SALIDA = ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones_marcas.png"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 CATEGORIAS = [  # (clave, texto de leyenda, color)
     ("video", "vídeo (no se descargó el archivo)", "#9DB7CF"),

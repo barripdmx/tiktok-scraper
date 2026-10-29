@@ -17,8 +17,8 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from config.blocus import FALSOS_POSITIVOS_BASE
 
 ROOT = Path(__file__).resolve().parents[1]
-GRAFO = ROOT / "outputs/grafo_blocus_20261025"
-HILO = ROOT / "outputs/Hilo_twitter_blocus_españa"
+GRAFO = ROOT / "data/blocus/datos/grafo_blocus_20261025"
+HILO = ROOT / "data/blocus/graficas/Hilo_twitter_blocus_españa"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 FUENTES = ["DejaVu Sans", "Segoe UI Symbol", "Cambria Math", "Segoe UI Emoji"]  # apodos con letras matemáticas y emojis
 GRIS, NARANJA, ROJO = "#555555", "#CA6F1E", "#C0392B"

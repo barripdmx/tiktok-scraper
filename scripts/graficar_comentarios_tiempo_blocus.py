@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, rotular_ambito, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRADA = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
-SALIDA = ROOT / "outputs/comentarios_blocus_20261026/comentarios_por_dia.png"
+ENTRADA = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
+SALIDA = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios_por_dia.png"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 COLORES = ["#1F618D", "#A93226", "#CA6F1E", "#1E8449", "#7D3C98", "#4A4A4A", "#C8CED3"]
 DESDE = date(2026, 9, 25)  # antes de esta fecha hay solo unos pocos comentarios sueltos
@@ -85,7 +85,7 @@ def main():
     rotular_ambito(fig)
     fig.savefig(destino(SALIDA), facecolor="white")
     if AMBITO == "espana":
-        hilo = ROOT / "outputs/Hilo_twitter_blocus_españa"
+        hilo = ROOT / "data/blocus/graficas/Hilo_twitter_blocus_españa"
         hilo.mkdir(parents=True, exist_ok=True)
         fig.savefig(hilo / "03_comentarios_por_dia.png", facecolor="white")
     print(destino(SALIDA), d0, d1, dias[pico], suma[pico])

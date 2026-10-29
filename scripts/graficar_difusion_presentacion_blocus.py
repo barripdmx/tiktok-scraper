@@ -17,9 +17,9 @@ from scripts.analisis_emojis_blocus import cargar, resumen
 from scripts.tema_cuentas_blocus import temas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, nueva
 
-GRAFO = ROOT / "outputs/grafo_blocus_20261025"
-COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
-USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
+GRAFO = ROOT / "data/blocus/datos/grafo_blocus_20261025"
+COMENTARIOS = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
+USUARIOS = ROOT / "data/blocus/datos/usuarios_fecha_creacion/usuarios_por_fecha_creacion.csv"
 COLOR_TEMA = {"francés": "#1F618D", "español": "#C0392B", "común": "#1E8449", "sin clasificar": "#7F8C8D"}
 RECORRIDO = ("volem.graduacio", "blocuses", "manifestacion_barcelona")  # autor y las dos cuentas donde repite el texto
 

@@ -11,6 +11,9 @@ carpeta en data/, junto a los CSV/JSON de origen:
      └─ {proyecto}/                          ← CSV/JSON del proyecto
          ├─ Grafo/                           ← .gexf
          ├─ informes/
+         ├─ graficas/                        ← gráficas sueltas / de presentación
+         ├─ estudios/                        ← análisis y metodología
+         ├─ entregas/                        ← zips para compartir
          ├─ graficas_videos/
          │   └─ publicaciones/
          └─ graficas_comentarios/
@@ -18,6 +21,9 @@ carpeta en data/, junto a los CSV/JSON de origen:
              ├─ graficas_multidimensionales/
              ├─ graficas_patrones_cuentas/
              └─ polaridad_ia/
+
+    Proyectos grandes (p. ej. data/blocus/) agrupan además sus CSV/JSON en datos/.
+    Nada de un proyecto vive fuera de su carpeta: outputs/ ya no se usa.
 
 Importar desde cualquier script en src/ así:
     import sys, os
@@ -84,6 +90,16 @@ def dir_proyecto(proyecto: str) -> str:
 def dir_grafo(proyecto: str) -> str:
     """data/{proyecto}/Grafo/ (.gexf)"""
     return _out(proyecto, "Grafo")
+
+
+def dir_graficas(proyecto: str) -> str:
+    """data/{proyecto}/graficas/"""
+    return _out(proyecto, "graficas")
+
+
+def dir_estudios(proyecto: str) -> str:
+    """data/{proyecto}/estudios/"""
+    return _out(proyecto, "estudios")
 
 
 def dir_informes(proyecto: str) -> str:

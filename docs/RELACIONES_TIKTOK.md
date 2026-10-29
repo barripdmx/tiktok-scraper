@@ -82,7 +82,7 @@ Una verificación pendiente se registra como `verification_required`. Una lista 
 La sesión de Chrome habitual puede mostrar datos que la sesión de Playwright no recibe. Las observaciones DOM recogidas desde esa pestaña se pueden importar, conservando la fecha de cada página:
 
 ```powershell
-rtk proxy python src/scrapers/tiktok_scraper_relaciones.py --user blocusespanol --importar-captura "data/user_blocusespanol/relaciones/<captura>/captura_chrome.json"
+rtk proxy python src/scrapers/tiktok_scraper_relaciones.py --user blocusespanol --importar-captura "data/blocus/datos/user_blocusespanol/relaciones/<captura>/captura_chrome.json"
 ```
 
 Este comando genera las exportaciones en la carpeta del JSON y no abre un navegador. La captura debe tener este contrato mínimo:
@@ -117,7 +117,7 @@ Los números y nombres de este ejemplo son ilustrativos. Los UID se conservan cu
 ## Reanudación del método Playwright/DOM
 
 ```powershell
-rtk proxy python src/scrapers/tiktok_scraper_relaciones.py --user blocusespanol --reanudar "data/user_blocusespanol/relaciones/<ejecucion>"
+rtk proxy python src/scrapers/tiktok_scraper_relaciones.py --user blocusespanol --reanudar "data/blocus/datos/user_blocusespanol/relaciones/<ejecucion>"
 ```
 
 La captura web vuelve a abrir la lista desde el inicio y deduplica contra SQLite. No reproduce URLs firmadas. Para volver a importar un JSON sobre una captura anterior, añade tanto `--importar-captura` como `--reanudar`.

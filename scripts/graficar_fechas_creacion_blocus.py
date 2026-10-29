@@ -16,11 +16,11 @@ import matplotlib.pyplot as plt
 from config.blocus import FALSOS_POSITIVOS, NOTA_FALSOS_POSITIVOS, destino, primera_publicacion_espana, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
-USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
-OBJETIVOS = ROOT / "outputs/grafo_blocus_20261025/cuentas.csv"
-RELACIONES = ROOT / "outputs/grafo_blocus_20261025/relaciones.csv"
-COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
-SALIDA = ROOT / "outputs/grafo_blocus_20261025/fechas_creacion_cuentas.png"
+USUARIOS = ROOT / "data/blocus/datos/usuarios_fecha_creacion/usuarios_por_fecha_creacion.csv"
+OBJETIVOS = ROOT / "data/blocus/datos/grafo_blocus_20261025/cuentas.csv"
+RELACIONES = ROOT / "data/blocus/datos/grafo_blocus_20261025/relaciones.csv"
+COMENTARIOS = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
+SALIDA = ROOT / "data/blocus/datos/grafo_blocus_20261025/fechas_creacion_cuentas.png"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 MESES_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 

@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "outputs" / "grafo_blocus_20261025" / "orden_devuelto_seguidores.csv"
-DEST = ROOT / "outputs" / "edicion_fechas_20_20261027" / "fechas_20.json"
+SOURCE = ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "orden_devuelto_seguidores.csv"
+DEST = ROOT / "data" / "blocus" / "datos" / "edicion_fechas_20_20261027" / "fechas_20.json"
 
 
 def main() -> None:

@@ -7,7 +7,7 @@ Evidencia por cuenta, en este orden:
    publicaciones, el grupo «referencia_espana» de las candidatas.
 Reglas: español/francés si ese idioma supera el 60 % de las palabras distintivas; común si cada idioma tiene al menos
 20 palabras y el 8 % del total. Es una clasificación heurística: la columna «confianza» indica cuánta evidencia hay.
-Escribe outputs/grafo_blocus_20261025/tema_cuentas.csv.
+Escribe data/blocus/datos/grafo_blocus_20261025/tema_cuentas.csv.
 """
 
 import csv
@@ -18,10 +18,10 @@ from collections import Counter
 from config.blocus import FALSOS_POSITIVOS
 from scripts.estilo_presentacion_blocus import ROOT
 
-SALIDA = ROOT / "outputs/grafo_blocus_20261025/tema_cuentas.csv"
-PUBLICACIONES = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
-COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
-CANDIDATAS = ROOT / "outputs/cuentas_blocus_20261025/candidatas_ampliadas.json"
+SALIDA = ROOT / "data/blocus/datos/grafo_blocus_20261025/tema_cuentas.csv"
+PUBLICACIONES = ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones.csv"
+COMENTARIOS = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
+CANDIDATAS = ROOT / "data/blocus/datos/cuentas_blocus_20261025/candidatas_ampliadas.json"
 PAISES_FR = {"FR", "BE", "CA", "RO", "NL", "IT"}  # cuentas con texto francés fuera de Francia
 FR = set("les des est pas vous nous c'est cest qui avec mais sont ça très faut jamais merci mdr lycée lycee macron aujourd'hui "
          "demain faire être je suis du aux ont comme cette ces mon ma mes notre votre dans pour".split())

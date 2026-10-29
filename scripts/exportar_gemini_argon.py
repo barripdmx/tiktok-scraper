@@ -19,23 +19,22 @@ from openpyxl.utils import get_column_letter
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUTS = ROOT / "outputs"
-DEST = OUTPUTS / "gemini_argon_blocus_20261027" / "blocus_datos_gemini_argon.xlsx"
+DEST = ROOT / "data/blocus/datos/gemini_argon_blocus_20261027" / "blocus_datos_gemini_argon.xlsx"
 
 SOURCES = {
-    "NODOS_RED": OUTPUTS / "grafo_blocus_20261025" / "cuentas.csv",
-    "RELACIONES": OUTPUTS / "grafo_blocus_20261025" / "relaciones.csv",
-    "COBERTURA": OUTPUTS / "grafo_blocus_20261025" / "cobertura.csv",
-    "ORDEN_FOLLOWERS": OUTPUTS / "grafo_blocus_20261025" / "orden_devuelto_seguidores.csv",
-    "SEGUIDOS": OUTPUTS / "grafo_blocus_20261025" / "miembros_seguidos.csv",
-    "PUBLICACIONES": OUTPUTS / "comentarios_blocus_20261026" / "publicaciones.csv",
-    "COMENTARIOS": OUTPUTS / "comentarios_blocus_20261026" / "comentarios.csv",
-    "INTERACCIONES": OUTPUTS / "grafo_comentarios_blocus_20261026" / "aristas.csv",
-    "USUARIOS_FECHA": OUTPUTS / "01a173e7-58a9-7d53-a645-746d1a51b712" / "usuarios_por_fecha_creacion.csv",
+    "NODOS_RED": ROOT / "data/blocus/datos/grafo_blocus_20261025" / "cuentas.csv",
+    "RELACIONES": ROOT / "data/blocus/datos/grafo_blocus_20261025" / "relaciones.csv",
+    "COBERTURA": ROOT / "data/blocus/datos/grafo_blocus_20261025" / "cobertura.csv",
+    "ORDEN_FOLLOWERS": ROOT / "data/blocus/datos/grafo_blocus_20261025" / "orden_devuelto_seguidores.csv",
+    "SEGUIDOS": ROOT / "data/blocus/datos/grafo_blocus_20261025" / "miembros_seguidos.csv",
+    "PUBLICACIONES": ROOT / "data/blocus/datos/comentarios_blocus_20261026" / "publicaciones.csv",
+    "COMENTARIOS": ROOT / "data/blocus/datos/comentarios_blocus_20261026" / "comentarios.csv",
+    "INTERACCIONES": ROOT / "data/blocus/datos/grafo_comentarios_blocus_20261026" / "aristas.csv",
+    "USUARIOS_FECHA": ROOT / "data/blocus/datos/usuarios_fecha_creacion" / "usuarios_por_fecha_creacion.csv",
 }
 PROFILE_CACHES = (
-    OUTPUTS / "fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
-    OUTPUTS / "fechas_seguidores_orden_inverso_20261027" / "consultas_por_id.json",
+    ROOT / "data/blocus/datos/fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
+    ROOT / "data/blocus/datos/fechas_seguidores_orden_inverso_20261027" / "consultas_por_id.json",
 )
 
 DATE_FIELDS = {
@@ -251,7 +250,7 @@ def guide_sheet(wb, counts):
     rows.append(("HOJAS", "Filas de datos y función de cada pestaña:"))
     for name, description in descriptions.items():
         rows.append((f"{name}: {counts[name]:,}", description))
-    rows.append(("Fuentes", "CSVs normalizados en outputs/grafo_blocus_20261025, outputs/comentarios_blocus_20261026 y outputs/grafo_comentarios_blocus_20261026."))
+    rows.append(("Fuentes", "CSVs normalizados en data/blocus/datos/grafo_blocus_20261025, data/blocus/datos/comentarios_blocus_20261026 y data/blocus/datos/grafo_comentarios_blocus_20261026."))
     for key, value in rows:
         sheet.append([safe_text(sheet, key), safe_text(sheet, value)])
     sheet.column_dimensions["A"].width = 27

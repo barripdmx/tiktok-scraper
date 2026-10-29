@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from src.scrapers.tiktok_descargar_relaciones import FetchError, TikTokClient
 
 
-DEFAULT_PARENT = ROOT / "outputs" / "estudio_orden_jbarri_20261026"
+DEFAULT_PARENT = ROOT / "data" / "blocus" / "estudios" / "estudio_orden_jbarri_20261026"
 FIELDS = (
     "lista", "posicion_respuesta", "pagina", "posicion_en_pagina", "user_id", "username",
     "cursor_enviado", "minCursor", "maxCursor", "observed_at", "evidencia",

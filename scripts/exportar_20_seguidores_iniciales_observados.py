@@ -12,8 +12,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "outputs" / "grafo_blocus_20261025"
-DEST = ROOT / "data" / "lote_blocus_20261025T195208Z" / "cuentas_analizadas_20_seguidores_mas_antiguos_observados.csv"
+SOURCE = ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025"
+DEST = ROOT / "data" / "blocus" / "datos" / "lote_blocus_20261025T195208Z" / "cuentas_analizadas_20_seguidores_mas_antiguos_observados.csv"
 FIELDS = ["cuenta_analizada", *(f"seguidor_{rank:02d}" for rank in range(1, 21))]
 
 

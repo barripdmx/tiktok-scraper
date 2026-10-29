@@ -11,8 +11,8 @@ from openpyxl import load_workbook
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "data" / "lote_blocus_20261025T195208Z" / "cuentas_analizadas_20_seguidores_mas_antiguos_observados.xlsx"
-FOLDER = ROOT / "outputs" / "edicion_fechas_20_20261027"
+SOURCE = ROOT / "data" / "blocus" / "datos" / "lote_blocus_20261025T195208Z" / "cuentas_analizadas_20_seguidores_mas_antiguos_observados.xlsx"
+FOLDER = ROOT / "data" / "blocus" / "datos" / "edicion_fechas_20_20261027"
 DEST = FOLDER / "fechas_20_actualizado.xlsx"
 MAP = FOLDER / "fechas_20.json"
 

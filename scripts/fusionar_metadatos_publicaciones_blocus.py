@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "outputs/comentarios_blocus_20261026"
+OUT = ROOT / "data/blocus/datos/comentarios_blocus_20261026"
 CSV_PATH = OUT / "publicaciones.csv"
 JSON_PATH = OUT / "metadatos_publicaciones.json"
 

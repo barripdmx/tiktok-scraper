@@ -11,7 +11,7 @@ from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from config.blocus import NOTA_FALSOS_POSITIVOS, destino, rotular_ambito
 
 ROOT = Path(__file__).resolve().parents[1]
-DESTINO = ROOT / "outputs/presentacion_blocus_20261028"
+DESTINO = ROOT / "data/blocus/graficas/presentacion_blocus_20261028"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 AZUL, ROJO, NARANJA, GRIS, CLARO = "#1F618D", "#A93226", "#CA6F1E", "#4A4A4A", "#9DB7CF"
 

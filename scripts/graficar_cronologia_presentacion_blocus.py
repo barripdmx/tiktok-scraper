@@ -10,7 +10,7 @@ import matplotlib.dates as mdates
 from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, tema_de_cuentas
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, miles, nueva
 
-SALIDA = ROOT / "outputs/comentarios_blocus_20261026"
+SALIDA = ROOT / "data/blocus/datos/comentarios_blocus_20261026"
 DESDE = date(2026, 9, 25)
 OCTUBRE = date(2026, 10, 1)
 CONVOCATORIAS = (17, 24, 31)  # días de octubre más citados como convocatoria en las descripciones

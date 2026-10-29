@@ -14,7 +14,7 @@ from pathlib import Path
 from config.blocus import FALSOS_POSITIVOS
 
 ROOT = Path(__file__).resolve().parents[1]
-COMENTARIOS = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
+COMENTARIOS = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
 CUENTA_FOCO = "teamblocus"
 TOP_COMUNES = 15
 EMOJI = re.compile("[\U0001F1E6-\U0001F1FF]{2}|[\U0001F000-\U0001F1E5\U0001F200-\U0001FAFF☀-➿⬀-⯿"

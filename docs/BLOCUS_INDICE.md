@@ -3,7 +3,7 @@
 `outputs/` y `data/` no se versionan. Este índice dice dónde está cada cosa.
 
 ## Datos crudos (`data/`)
-- `data/lote_blocus_20261025T195208Z/`: captura de relaciones (seguidores/seguidos) de las 38 cuentas analizadas.
+- `data/blocus/datos/lote_blocus_20261025T195208Z/`: captura de relaciones (seguidores/seguidos) de las 38 cuentas analizadas.
   `user_<cuenta>/relaciones/`, `lotes_relaciones/<intento>/`, `evidencias_orden/` (páginas JSON de la respuesta web, con el orden original) y `actividad.log`.
   Además: `cuentas_analizadas_20_seguidores_mas_antiguos_observados.csv/.xlsx`, `grafo_*.png`, `coment_*.png`.
 

@@ -4,13 +4,13 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 
 | # | Gráfica | Archivo | Script |
 |---|---|---|---|
-| 1 | Cuentas analizadas y relaciones (en rojo, las que no tienen ninguna) | `outputs/grafo_blocus_20261025/cuentas_analizadas_relaciones.png` | `graficar_cuentas_analizadas_blocus` |
-| 2 | Fechas de creación: cuentas, seguidores y comentaristas | `outputs/grafo_blocus_20261025/fechas_creacion_cuentas.png` | `graficar_fechas_creacion_blocus` |
-| 3 | Audiencia compartida entre cuentas (mapa de calor) | `outputs/grafo_blocus_20261025/audiencia_compartida.png` | `graficar_audiencia_compartida_blocus` |
-| 4 | Publicaciones por cuenta y marcas de las fotos | `outputs/comentarios_blocus_20261026/publicaciones_marcas.png` | `graficar_publicaciones_marcas_blocus` |
-| 5 | Comentarios por día y cuenta | `outputs/comentarios_blocus_20261026/comentarios_por_dia.png` | `graficar_comentarios_tiempo_blocus` |
-| 6 | País de creación y hashtags | `outputs/comentarios_blocus_20261026/paises_y_hashtags.png` | `graficar_paises_hashtags_blocus` |
-| 7 | Creación frente a seguidores de las cuentas publicadoras | `outputs/comentarios_blocus_20261026/cuentas_creacion_seguidores.png` | `graficar_tamano_cuentas_blocus` |
+| 1 | Cuentas analizadas y relaciones (en rojo, las que no tienen ninguna) | `data/blocus/datos/grafo_blocus_20261025/cuentas_analizadas_relaciones.png` | `graficar_cuentas_analizadas_blocus` |
+| 2 | Fechas de creación: cuentas, seguidores y comentaristas | `data/blocus/datos/grafo_blocus_20261025/fechas_creacion_cuentas.png` | `graficar_fechas_creacion_blocus` |
+| 3 | Audiencia compartida entre cuentas (mapa de calor) | `data/blocus/datos/grafo_blocus_20261025/audiencia_compartida.png` | `graficar_audiencia_compartida_blocus` |
+| 4 | Publicaciones por cuenta y marcas de las fotos | `data/blocus/datos/comentarios_blocus_20261026/publicaciones_marcas.png` | `graficar_publicaciones_marcas_blocus` |
+| 5 | Comentarios por día y cuenta | `data/blocus/datos/comentarios_blocus_20261026/comentarios_por_dia.png` | `graficar_comentarios_tiempo_blocus` |
+| 6 | País de creación y hashtags | `data/blocus/datos/comentarios_blocus_20261026/paises_y_hashtags.png` | `graficar_paises_hashtags_blocus` |
+| 7 | Creación frente a seguidores de las cuentas publicadoras | `data/blocus/datos/comentarios_blocus_20261026/cuentas_creacion_seguidores.png` | `graficar_tamano_cuentas_blocus` |
 
 ## Falsos positivos excluidos
 `@blocus328` (comunidad aparentemente haitiana, publicaciones oct 2025-may 2026), `@luccca93` (memes de CapCut en contexto catalán) `@blocus75000` (fitness y baño, sin relación con las convocatorias) y `@blocus.es_` (su bio dice que usa el nombre «blocus» por marketing) entraron al lote solo por llevar «blocus» en el nombre. Se excluyen de todas las gráficas y se indican en una nota roja al pie. La lista está en `config/blocus.py` (`FALSOS_POSITIVOS`). Los datos crudos y `publicaciones.csv` no se tocan. Se mantienen como dudosas, sin contenido o sin datos para juzgarlas: `@blocusscpmofrancia`, `@blocus91`, `@blocussgp`, `@blocus.cs` (perfiles con 0 vídeos) y `@blocusasturias`, `@manifestacion_barcelona` (perfil no disponible, código 10221). Cifras de abajo ya sin las excluidas.
@@ -31,22 +31,22 @@ Las imágenes están en `outputs/` (no se versiona). Cada una se regenera con `p
 
 ## Pendiente
 - Las seis cuentas dudosas no se han podido juzgar (ver arriba); si TikTok vuelve a mostrar `blocusasturias` o `manifestacion_barcelona`, revisarlas.
-- Quedan 45.100 cuentas por consultar en `outputs/fechas_seguidores_orden_inverso_20261027/cola_prioridad.csv`.
+- Quedan 45.100 cuentas por consultar en `data/blocus/datos/fechas_seguidores_orden_inverso_20261027/cola_prioridad.csv`.
 
 ## Tema de las cuentas: Francia, España y común (28/10/2026)
 `scripts/tema_cuentas_blocus.py` clasifica las cuentas por el idioma de lo que publican y de sus comentarios
 (palabras distintivas en francés y español; sin texto, por país de creación o por el grupo `referencia_espana`) y escribe
-`outputs/grafo_blocus_20261025/tema_cuentas.csv` con la confianza de cada cuenta. Es una clasificación heurística.
+`data/blocus/datos/grafo_blocus_20261025/tema_cuentas.csv` con la confianza de cada cuenta. Es una clasificación heurística.
 - 47 cuentas: 32 francesas, 14 españolas y 1 común (`ftbl687`, comentarios en ambos idiomas).
 - Peso del tema español: 28 de 318 publicaciones (8,8 %), 250 de 10.434 comentarios (2,4 %) y 162 autores únicos.
   Ningún autor comenta a la vez en cuentas francesas y españolas. `ftbl687` concentra 3.988 comentarios.
-- `outputs/presentacion_blocus_20261028/08_difusion_por_tema.png`: el grafo de difusión con los nodos en azul (francés),
+- `data/blocus/graficas/presentacion_blocus_20261028/08_difusion_por_tema.png`: el grafo de difusión con los nodos en azul (francés),
   rojo (español) y verde (común). Forma dos grupos separados; el único enlace entre ellos pasa por `ftbl687`
   (autores comunes con `@blocusespanol`). 6 de los 7 nodos españoles del grafo ya no están disponibles en TikTok.
 
 ## Ámbito España (28/10/2026)
 Con `BLOCUS_AMBITO=espana` (variable de entorno) cada script limita la gráfica a las cuentas de tema español (rojo) y
-común (verde, `@ftbl687`) y la guarda en `outputs/ambito_espana_20261028/` (mismos nombres de archivo). Ejemplo:
+común (verde, `@ftbl687`) y la guarda en `data/blocus/graficas/ambito_espana_20261028/` (mismos nombres de archivo). Ejemplo:
 `BLOCUS_AMBITO=espana python -m scripts.graficar_cuentas_analizadas_blocus`. Los scripts de emojis y la matriz de
 hallazgos no se generan en este ámbito (@teamblocus es francés). Excluye 35 cuentas de tema francés o sin clasificar.
 - 15 cuentas, 50 publicaciones (35 ya no disponibles) y 4.238 comentarios; `@ftbl687` aporta 3.988 de esos comentarios.

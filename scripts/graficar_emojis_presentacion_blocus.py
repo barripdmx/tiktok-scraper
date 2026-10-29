@@ -10,7 +10,7 @@ import matplotlib.dates as mdates
 from scripts.analisis_emojis_blocus import CUENTA_FOCO, TOP_COMUNES, cargar, resumen
 from scripts.estilo_presentacion_blocus import AZUL, CLARO, GRIS, NARANJA, ROJO, ROOT, guardar, limpiar, miles, nueva, pct
 
-USUARIOS = ROOT / "outputs/01a173e7-58a9-7d53-a645-746d1a51b712/usuarios_por_fecha_creacion.csv"
+USUARIOS = ROOT / "data/blocus/datos/usuarios_fecha_creacion/usuarios_por_fecha_creacion.csv"
 DEFINICION = (f"Definición: comentario formado solo por 2 a 4 emojis distintos, ninguno entre los {TOP_COMUNES} más "
               "frecuentes de las demás cuentas (sin texto, sin pegatinas «[…]»).")
 

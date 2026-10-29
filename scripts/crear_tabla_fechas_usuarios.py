@@ -14,10 +14,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEST = ROOT / "outputs" / "01a173e7-58a9-7d53-a645-746d1a51b712"
+DEST = ROOT / "data" / "blocus" / "datos" / "usuarios_fecha_creacion"
 PROFILE_CACHES = (
-    ROOT / "outputs" / "fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
-    ROOT / "outputs" / "fechas_seguidores_orden_inverso_20261027" / "consultas_por_id.json",
+    ROOT / "data" / "blocus" / "datos" / "fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
+    ROOT / "data" / "blocus" / "datos" / "fechas_seguidores_orden_inverso_20261027" / "consultas_por_id.json",
 )
 FIELDS = ["fecha_orden_utc", "tipo_fecha", "usuario", "user_id",
           "fecha_creacion_perfil_utc", "fecha_uid_estimada_utc",
@@ -112,8 +112,8 @@ def apply_new_profile_dates(table: list[dict]) -> int:
 
 
 def main() -> None:
-    accounts = rows(ROOT / "outputs" / "grafo_blocus_20261025" / "cuentas.csv")
-    comments = rows(ROOT / "outputs" / "comentarios_blocus_20261026" / "comentarios.csv")
+    accounts = rows(ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "cuentas.csv")
+    comments = rows(ROOT / "data" / "blocus" / "datos" / "comentarios_blocus_20261026" / "comentarios.csv")
     table = build(accounts, comments)
     added = apply_new_profile_dates(table)
     DEST.mkdir(parents=True, exist_ok=True)

@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 
-OUT = Path(__file__).resolve().parents[1] / "outputs/comentarios_blocus_20261026"
+OUT = Path(__file__).resolve().parents[1] / "data/blocus/datos/comentarios_blocus_20261026"
 
 
 def rows(name):

@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STUDY = ROOT / "outputs" / "estudio_orden_jbarri_20261026"
+STUDY = ROOT / "data" / "blocus" / "estudios" / "estudio_orden_jbarri_20261026"
 KEYS = {
     "seguidores": {"follower", "followers", "followerlist", "fanslist", "fans"},
     "seguidos": {"following", "followinglist", "followings"},
@@ -231,10 +231,10 @@ def compare(web: list[dict[str, str]], dated: dict[str, str], direction: str) ->
 
 def blocus_observations() -> list[dict]:
     import json as _json
-    base = ROOT / "data" / "user_blocusespanol" / "relaciones" / "http_curl_20261025"
+    base = ROOT / "data" / "blocus" / "datos" / "user_blocusespanol" / "relaciones" / "http_curl_20261025"
     with (base / "seguidores.csv").open(encoding="utf-8-sig", newline="") as stream:
         first = [row["id"] for row in csv.DictReader(stream)]
-    root = ROOT / "data" / "lote_blocus_20261025T195208Z" / "evidencias_orden"
+    root = ROOT / "data" / "blocus" / "datos" / "lote_blocus_20261025T195208Z" / "evidencias_orden"
     folders = [root / stamp / "blocusespanol" / "seguidores" for stamp in
                ("20261025T200409Z", "20261025T213414Z")]
     sequences = [first]

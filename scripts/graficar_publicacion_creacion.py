@@ -16,9 +16,9 @@ import plotly.graph_objects as go
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "outputs" / "comentarios_blocus_20261026"
-USERS = ROOT / "outputs" / "01a173e7-58a9-7d53-a645-746d1a51b712" / "usuarios_por_fecha_creacion.csv"
-DEST = ROOT / "outputs" / "analisis_publicacion_creacion_20261026"
+SOURCE = ROOT / "data" / "blocus" / "datos" / "comentarios_blocus_20261026"
+USERS = ROOT / "data" / "blocus" / "datos" / "usuarios_fecha_creacion" / "usuarios_por_fecha_creacion.csv"
+DEST = ROOT / "data" / "blocus" / "graficas" / "analisis_publicacion_creacion_20261026"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -171,7 +171,7 @@ def main() -> None:
     publications = read_csv(SOURCE / "publicaciones.csv")
     comments = read_csv(SOURCE / "comentarios.csv")
     users = read_csv(USERS)
-    accounts = read_csv(ROOT / "outputs" / "grafo_blocus_20261025" / "cuentas.csv")
+    accounts = read_csv(ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "cuentas.csv")
     publishers, commenters, summary = build_points(publications, comments, users, accounts)
     DEST.mkdir(parents=True, exist_ok=True)
     draw_png(publishers, commenters, summary)

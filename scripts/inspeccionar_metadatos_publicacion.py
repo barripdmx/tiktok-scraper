@@ -14,7 +14,7 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POSTS = ROOT / "outputs" / "comentarios_blocus_20261026" / "publicaciones.csv"
+POSTS = ROOT / "data" / "blocus" / "datos" / "comentarios_blocus_20261026" / "publicaciones.csv"
 
 
 class Hydration(HTMLParser):

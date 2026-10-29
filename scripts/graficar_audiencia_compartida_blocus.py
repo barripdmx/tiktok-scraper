@@ -17,7 +17,7 @@ from config.blocus import AMBITO, COLOR_TEMA, NOTA_FALSOS_POSITIVOS, destino, te
 from scripts.graficar_cuentas_analizadas_blocus import construir
 
 ROOT = Path(__file__).resolve().parents[1]
-SALIDA = ROOT / "outputs/grafo_blocus_20261025/audiencia_compartida.png"
+SALIDA = ROOT / "data/blocus/datos/grafo_blocus_20261025/audiencia_compartida.png"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 TOP = 22
 

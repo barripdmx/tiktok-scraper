@@ -19,12 +19,12 @@ from src.utils.tiktok_relaciones import atomic_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "outputs" / "fechas_perfiles_ampliacion_20261027"
+OUT = ROOT / "data" / "blocus" / "datos" / "fechas_perfiles_ampliacion_20261027"
 CACHE = OUT / "consultas_por_id.json"
 STATE = OUT / "estado.json"
-USERS = ROOT / "outputs" / "01a173e7-58a9-7d53-a645-746d1a51b712" / "usuarios_por_fecha_creacion.csv"
-GRAPH = ROOT / "outputs" / "grafo_blocus_20261025" / "cuentas.csv"
-OLD_CACHE = ROOT / "outputs" / "primeros_50_blocus_20261026" / "fechas_consulta_por_id.json"
+USERS = ROOT / "data" / "blocus" / "datos" / "usuarios_fecha_creacion" / "usuarios_por_fecha_creacion.csv"
+GRAPH = ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "cuentas.csv"
+OLD_CACHE = ROOT / "data" / "blocus" / "datos" / "primeros_50_blocus_20261026" / "fechas_consulta_por_id.json"
 PERMANENT_REASONS = {
     "profile_status_10222", "profile_status_10221", "profile_status_10202",
     "profile_status_10223", "uid_mismatch", "createTime_missing_or_invalid",

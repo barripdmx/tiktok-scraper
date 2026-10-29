@@ -20,15 +20,15 @@ from src.utils.tiktok_relaciones import atomic_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "outputs" / "fechas_seguidores_orden_inverso_20261027"
+OUT = ROOT / "data" / "blocus" / "datos" / "fechas_seguidores_orden_inverso_20261027"
 CACHE = OUT / "consultas_por_id.json"
 STATE = OUT / "estado.json"
 QUEUE = OUT / "cola_prioridad.csv"
-ORDER = ROOT / "outputs" / "grafo_blocus_20261025" / "orden_devuelto_seguidores.csv"
-MASTER = ROOT / "outputs" / "01a173e7-58a9-7d53-a645-746d1a51b712" / "usuarios_por_fecha_creacion.csv"
+ORDER = ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "orden_devuelto_seguidores.csv"
+MASTER = ROOT / "data" / "blocus" / "datos" / "usuarios_fecha_creacion" / "usuarios_por_fecha_creacion.csv"
 PREVIOUS_CACHES = (
-    ROOT / "outputs" / "primeros_50_blocus_20261026" / "fechas_consulta_por_id.json",
-    ROOT / "outputs" / "fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
+    ROOT / "data" / "blocus" / "datos" / "primeros_50_blocus_20261026" / "fechas_consulta_por_id.json",
+    ROOT / "data" / "blocus" / "datos" / "fechas_perfiles_ampliacion_20261027" / "consultas_por_id.json",
 )
 QUEUE_FIELDS = ["prioridad", "user_id", "username", "objetivo", "puesto_desde_final_captura",
                 "posicion_respuesta", "total_capturado_objetivo", "pagina", "evidencia"]

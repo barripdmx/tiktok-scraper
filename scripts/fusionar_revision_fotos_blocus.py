@@ -13,7 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CSV_PATH = ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv"
+CSV_PATH = ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones.csv"
 
 CAMPOS = ["foto_n_revisadas", "foto_n_fbmd", "foto_n_c2pa", "foto_n_xmp", "foto_n_exif_sin_c2pa",
           "foto_icc_google", "foto_n_jpeg_progresivo", "foto_servidores_identicos", "foto_sha256_12"]

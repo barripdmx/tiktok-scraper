@@ -14,8 +14,8 @@ import networkx as nx
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "outputs" / "comentarios_blocus_20261026"
-DEST = ROOT / "outputs" / "grafo_comentarios_blocus_20261026"
+SOURCE = ROOT / "data" / "blocus" / "datos" / "comentarios_blocus_20261026"
+DEST = ROOT / "data" / "blocus" / "datos" / "grafo_comentarios_blocus_20261026"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -200,7 +200,7 @@ def export_viewer(accounts: list[dict[str, str]], comments: list[dict[str, str]]
 def main() -> None:
     accounts = read_csv(SOURCE / "estado_cuentas.csv")
     comments = read_csv(SOURCE / "comentarios.csv")
-    account_ids = read_account_ids(ROOT / "outputs" / "grafo_blocus_20261025" / "cuentas.csv")
+    account_ids = read_account_ids(ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025" / "cuentas.csv")
     graph, summary = build_graph(accounts, comments, account_ids)
     export_graph(graph, summary)
     export_viewer(accounts, comments, summary)

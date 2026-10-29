@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "outputs/comentarios_blocus_20261026"
+OUT = ROOT / "data/blocus/datos/comentarios_blocus_20261026"
 SOURCE = ROOT / "src/scrapers/tiktok_descargar_relaciones.py"
 INPUT = OUT / "inventario_navegador.json"
 POSTS = OUT / "por_publicacion"

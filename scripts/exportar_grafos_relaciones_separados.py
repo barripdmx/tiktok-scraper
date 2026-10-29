@@ -15,7 +15,7 @@ import networkx as nx
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEST = ROOT / "outputs" / "grafo_blocus_20261025"
+DEST = ROOT / "data" / "blocus" / "datos" / "grafo_blocus_20261025"
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:

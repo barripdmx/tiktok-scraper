@@ -19,10 +19,10 @@ import networkx as nx
 from config.blocus import AMBITO, COLOR_TEMA, FALSOS_POSITIVOS, FALSOS_POSITIVOS_BASE, NOTA_FALSOS_POSITIVOS, destino, tema_de_cuentas
 
 ROOT = Path(__file__).resolve().parents[1]
-GRAFO = ROOT / "outputs/grafo_blocus_20261025"
-COMENT = ROOT / "outputs/comentarios_blocus_20261026/comentarios.csv"
+GRAFO = ROOT / "data/blocus/datos/grafo_blocus_20261025"
+COMENT = ROOT / "data/blocus/datos/comentarios_blocus_20261026/comentarios.csv"
 SALIDA = GRAFO / "cuentas_analizadas_relaciones.png"
-HILO = ROOT / "outputs/Hilo_twitter_blocus_españa"
+HILO = ROOT / "data/blocus/graficas/Hilo_twitter_blocus_españa"
 LOGO = ROOT / "assets/tiktok_logo.jpg"
 FONDO_CAJA = dict(boxstyle="round,pad=0.5", fc="#F7F7F7", ec="#CCCCCC")
 

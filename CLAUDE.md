@@ -11,12 +11,13 @@ Todo resultado de un proyecto vive bajo `data/{proyecto}/` (nombre derivado de l
 data/{proyecto}/
   *.csv, *.json                      ← vídeos, comentarios, sentimiento, enriquecido
   Grafo/                             ← .gexf / .gephi
+  graficas/ estudios/ entregas/      ← gráficas sueltas, análisis, zips (todo cuelga del proyecto)
   informes/                          ← informe HTML
   graficas_videos/publicaciones/
   graficas_comentarios/              ← nubes, + graficas_multidimensionales/, graficas_patrones_cuentas/, polaridad_ia/
 ```
 - **`config/rutas.py` es la única fuente de rutas** (`derivar_proyecto`, `dir_informes`, `dir_publicaciones`, `dir_grafo`…). No escribir rutas a mano.
-- `outputs/` es solo legacy: no se usa en el flujo actual.
+- `outputs/` ya no se usa: solo quedan `_legacy`, `taller_tiktok` y material sin proyecto en `data/` (operadores_2024, partidos_politicos_2024, graficas_redes, graphics). Blocus vive en `data/blocus/{datos,graficas,estudios,entregas}`.
 - `secrets/` (cookies/sesión de TikTok) y `config/.env` (claves API): nunca leer, imprimir ni versionar.
 - `drivers/` perfiles persistentes de Chromium (Playwright). `assets/tiktok_logo.jpg` watermark de gráficas.
 

@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 
-FILE = Path(__file__).resolve().parents[1] / "outputs" / "gemini_argon_blocus_20261027" / "blocus_datos_gemini_argon.xlsx"
+FILE = Path(__file__).resolve().parents[1] / "data" / "blocus" / "datos" / "gemini_argon_blocus_20261027" / "blocus_datos_gemini_argon.xlsx"
 BOTS = ("TELEGRAM_BOT_TOKEN", "RADAR_TELEGRAM_BOT_TOKEN")
 CHATS = ("TELEGRAM_PERSONAL_CHAT_ID", "TELEGRAM_CHAT_ID")
 

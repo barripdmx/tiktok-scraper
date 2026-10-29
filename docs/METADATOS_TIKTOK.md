@@ -97,7 +97,7 @@ No se encontraron `poi` ni `contentLocation` en las muestras. En otras publicaci
 
 ## Metadatos de todas las publicaciones de Blocus (27/10/2026)
 
-Se capturaron los metadatos de las 495 publicaciones de `outputs/comentarios_blocus_20261026/` y se añadieron a `publicaciones.csv` (97 columnas, las 4 originales intactas). Los registros completos están en `metadatos_publicaciones.json`. La fusión se hace con `scripts/fusionar_metadatos_publicaciones_blocus.py`.
+Se capturaron los metadatos de las 495 publicaciones de `data/blocus/datos/comentarios_blocus_20261026/` y se añadieron a `publicaciones.csv` (97 columnas, las 4 originales intactas). Los registros completos están en `metadatos_publicaciones.json`. La fusión se hace con `scripts/fusionar_metadatos_publicaciones_blocus.py`.
 
 | Estado | Publicaciones |
 |---|---:|

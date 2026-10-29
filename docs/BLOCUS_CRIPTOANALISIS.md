@@ -3,7 +3,7 @@
 Objeto: los 241 comentarios de @teamblocus que son solo una combinación atípica de 2 a 4 emojis (definición en
 `scripts/analisis_emojis_blocus.py`: solo emojis, distintos entre sí, ninguno entre los 15 más usados en las demás
 cuentas; 241 de 781 comentarios, frente a 18 de 9.653 en el resto). Análisis: `scripts/criptoanalisis_emojis_blocus.py`
-(semilla fija) y gráfica `outputs/presentacion_blocus_20261028/11_control_criptoanalitico.png`.
+(semilla fija) y gráfica `data/blocus/graficas/presentacion_blocus_20261028/11_control_criptoanalitico.png`.
 
 ## Qué se buscó y qué se encontró
 | Hipótesis | Prueba | Resultado |

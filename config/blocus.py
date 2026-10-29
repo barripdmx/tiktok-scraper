@@ -8,8 +8,8 @@ de @blocus.es_ dice que usa el nombre «blocus» por marketing.
 Las gráficas las excluyen y lo indican en una nota.
 
 Ámbito: con la variable de entorno BLOCUS_AMBITO=espana las gráficas se limitan a las cuentas de tema español (rojo) y
-común (verde), según outputs/grafo_blocus_20261025/tema_cuentas.csv (scripts/tema_cuentas_blocus.py), y se guardan
-en outputs/ambito_espana_20261028/.
+común (verde), según data/blocus/datos/grafo_blocus_20261025/tema_cuentas.csv (scripts/tema_cuentas_blocus.py), y se guardan
+en data/blocus/graficas/ambito_espana_20261028/.
 """
 
 import csv
@@ -21,8 +21,8 @@ FALSOS_POSITIVOS_BASE = ("blocus328", "luccca93", "blocus75000", "blocus.es_")
 # Sin contenido o sin datos para juzgarlas (perfiles sin vídeos, o no disponibles); se mantienen.
 DUDOSAS = ("blocusscpmofrancia", "blocus91", "blocussgp", "blocus.cs", "blocusasturias", "manifestacion_barcelona")
 AMBITO = os.environ.get("BLOCUS_AMBITO", "")
-TEMA_CSV = ROOT / "outputs/grafo_blocus_20261025/tema_cuentas.csv"
-OBJETIVOS_CSV = ROOT / "outputs/grafo_blocus_20261025/cuentas.csv"
+TEMA_CSV = ROOT / "data/blocus/datos/grafo_blocus_20261025/tema_cuentas.csv"
+OBJETIVOS_CSV = ROOT / "data/blocus/datos/grafo_blocus_20261025/cuentas.csv"
 COLOR_TEMA = {"francés": "#1F618D", "español": "#C0392B", "común": "#1E8449", "sin clasificar": "#7F8C8D"}
 
 
@@ -65,16 +65,16 @@ def primera_publicacion_espana():
     """(fecha UTC, cuenta) de la publicación más antigua de las cuentas de tema español; la fecha sale del ID (id >> 32)."""
     from datetime import datetime, timezone
     tema = tema_de_cuentas()
-    pubs = [r for r in _leer(ROOT / "outputs/comentarios_blocus_20261026/publicaciones.csv") if tema.get(r["cuenta"]) == "español"]
+    pubs = [r for r in _leer(ROOT / "data/blocus/datos/comentarios_blocus_20261026/publicaciones.csv") if tema.get(r["cuenta"]) == "español"]
     primera = min(pubs, key=lambda r: int(r["id"]))
     return datetime.fromtimestamp(int(primera["id"]) >> 32, timezone.utc), primera["cuenta"]
 
 
 def destino(ruta):
-    """Ruta de salida: en el ámbito España, el mismo nombre de archivo dentro de outputs/ambito_espana_20261028/."""
+    """Ruta de salida: en el ámbito España, el mismo nombre de archivo dentro de data/blocus/graficas/ambito_espana_20261028/."""
     if AMBITO != "espana":
         return Path(ruta)
-    carpeta = ROOT / "outputs/ambito_espana_20261028"
+    carpeta = ROOT / "data/blocus/graficas/ambito_espana_20261028"
     carpeta.mkdir(parents=True, exist_ok=True)
     return carpeta / Path(ruta).name
 
