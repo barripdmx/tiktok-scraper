@@ -105,7 +105,7 @@ def grafica_8(por_tema=False, todas=False):
                     f"{g.number_of_nodes()} cuentas con " + ("alguna relación, incluida la audiencia compartida de seguidores y seguidos"
                     if todas else "al menos un enlace documentado (seguir, comentar o comentaristas comunes)") + "; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
-                    "en varias cuentas no demuestra coordinación. " + ("Tamaño del nodo: nº de cuentas con las que se relaciona." if todas else "Los enlaces entre cuentas son pocos."))
+                    "en varias cuentas no demuestra coordinación." + chr(10) + "Seguir y comentar es lo observado, no todo lo existente: de @teamblocus se capturaron 9.995 de 37.500 seguidores y varias listas de seguidos no estaban disponibles." + (" Tamaño del nodo: nº de cuentas con las que se relaciona." if todas else ""))
     ax.axis("off")
     for (a, b), n in compartidos.items():
         ax.plot(*zip(pos[a], pos[b]), color="#9AA5AE", lw=min(0.5 + (0.25 if todas else 1.4) * n, 8), alpha=0.35 if todas else 0.6, zorder=1)
@@ -133,7 +133,7 @@ def grafica_8(por_tema=False, todas=False):
     ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[tam[n] for n in g],
                color=[COLOR_TEMA[tema.get(n, "sin clasificar")] if por_tema else GRIS for n in g], zorder=4)
     colocar_etiquetas(fig, ax, pos, tam, cuadro)
-    aristas = [Patch(color=c_sigue, label="sigue a (flecha)"), Patch(color=NARANJA, label="comenta en (flecha discontinua)"),
+    aristas = [Patch(color=c_sigue, label="sigue a (flecha; observado)"), Patch(color=NARANJA, label="comenta en (flecha discontinua; observado)"),
                Patch(color="#9AA5AE", label="usuarios comunes (grosor = nº)" if todas else "autores comunes (grosor = nº de autores)"),
                Patch(color=c_recorrido, label="recorrido de un texto repetido")]
     if por_tema:
