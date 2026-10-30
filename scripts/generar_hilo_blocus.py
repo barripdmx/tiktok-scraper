@@ -24,6 +24,7 @@ SCRIPTS = [("cuentas_analizadas", ""), ("resumen_y_comentaristas", ""), ("difusi
 # (archivo de origen, nombre en el hilo); las que escribe directamente en el hilo van sin origen
 HILO_FINAL = [
     (None, "01_cuentas_analizadas_relaciones.png"),
+    (PRESENT / "08_red_todas_las_cuentas.png", "01b_cuentas_analizadas_red.png"),  # alternativa a la 01 con el formato de la 03
     (PRESENT / "00_resumen_conjunto.png", "02_resumen_conjunto.png"),
     (PRESENT / "08_difusion_entre_cuentas.png", "03_difusion_entre_cuentas.png"),  # el salto del global a España
     (PRESENT / "08_difusion_por_tema.png", "04_difusion_por_tema.png"),

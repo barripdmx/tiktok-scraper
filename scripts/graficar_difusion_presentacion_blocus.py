@@ -88,21 +88,27 @@ def colocar_etiquetas(fig, ax, pos, tam, cuadro=None):
         cajas[n] = mejor[2]
 
 
-def grafica_8(por_tema=False):
+def grafica_8(por_tema=False, todas=False):
+    """todas=True: mismo formato, pero con las relaciones de la gráfica 01 (incluye la audiencia compartida de seguidores y seguidos)."""
     sigue, comenta, compartidos, multi = relaciones()
+    if todas:
+        from scripts.graficar_cuentas_analizadas_blocus import construir
+        nombres, _, comunes, _ = construir()
+        compartidos = {(nombres[a], nombres[b]): n for (a, b), n in comunes.items()}
     tema = temas() if por_tema else {}
     c_sigue, c_recorrido = ("#222222", "#7D3C98") if por_tema else (AZUL, ROJO)
     g = nx.Graph()
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
-    pos = nx.spring_layout(g, seed=11, k=2.4, iterations=400)
-    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia y España") if por_tema else "difusión entre cuentas: enlaces documentados",
-                    f"{g.number_of_nodes()} cuentas con al menos un enlace observado; cada línea indica qué relación representa",
+    pos = nx.spring_layout(g, seed=11, k=5.0 if todas else 2.4, iterations=400)
+    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia y España") if por_tema else "difusión entre cuentas: " + ("todas las relaciones" if todas else "enlaces documentados"),
+                    f"{g.number_of_nodes()} cuentas con " + ("alguna relación, incluida la audiencia compartida de seguidores y seguidos"
+                    if todas else "al menos un enlace documentado (seguir, comentar o comentaristas comunes)") + "; cada línea indica qué relación representa",
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
-                    "en varias cuentas no demuestra coordinación. Los enlaces entre cuentas son pocos.")
+                    "en varias cuentas no demuestra coordinación. " + ("Tamaño del nodo: nº de cuentas con las que se relaciona." if todas else "Los enlaces entre cuentas son pocos."))
     ax.axis("off")
     for (a, b), n in compartidos.items():
-        ax.plot(*zip(pos[a], pos[b]), color="#9AA5AE", lw=min(0.8 + 1.4 * n, 8), alpha=0.6, zorder=1)
+        ax.plot(*zip(pos[a], pos[b]), color="#9AA5AE", lw=min(0.5 + (0.25 if todas else 1.4) * n, 8), alpha=0.35 if todas else 0.6, zorder=1)
     for a, b in sigue:
         ax.annotate("", xy=pos[b], xytext=pos[a], zorder=2, arrowprops=dict(arrowstyle="-|>", color=c_sigue, lw=2,
                     shrinkA=9, shrinkB=9, connectionstyle="arc3,rad=0.15"))
@@ -123,12 +129,12 @@ def grafica_8(por_tema=False):
                              color=c_recorrido, arrowprops=dict(arrowstyle="-", color=c_recorrido, lw=0.8),
                              bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=c_recorrido), zorder=6)
     grado = dict(g.degree())
-    tam = {n: 60 + 40 * grado[n] for n in g}
+    tam = {n: (30 + 5 * grado[n]) if todas else 60 + 40 * grado[n] for n in g}
     ax.scatter([pos[n][0] for n in g], [pos[n][1] for n in g], s=[tam[n] for n in g],
                color=[COLOR_TEMA[tema.get(n, "sin clasificar")] if por_tema else GRIS for n in g], zorder=4)
     colocar_etiquetas(fig, ax, pos, tam, cuadro)
     aristas = [Patch(color=c_sigue, label="sigue a (flecha)"), Patch(color=NARANJA, label="comenta en (flecha discontinua)"),
-               Patch(color="#9AA5AE", label="autores comunes (grosor = nº de autores)"),
+               Patch(color="#9AA5AE", label="usuarios comunes (grosor = nº)" if todas else "autores comunes (grosor = nº de autores)"),
                Patch(color=c_recorrido, label="recorrido de un texto repetido")]
     if por_tema:
         n = Counter(tema.get(x, "sin clasificar") for x in g)
@@ -137,7 +143,7 @@ def grafica_8(por_tema=False):
                    alignment="left")
     fig.legend(handles=aristas, loc="upper left", bbox_to_anchor=(0.79, 0.52 if por_tema else 0.78), frameon=False, fontsize=9,
                title="líneas", alignment="left")
-    guardar(fig, "08_difusion_por_tema.png" if por_tema else "08_difusion_entre_cuentas.png")
+    guardar(fig, "08_red_todas_las_cuentas.png" if todas else "08_difusion_por_tema.png" if por_tema else "08_difusion_entre_cuentas.png")
 
 
 def grafica_10():
@@ -198,5 +204,7 @@ def grafica_10():
 if __name__ == "__main__":
     grafica_8()
     grafica_8(por_tema=True)
+    if not AMBITO:
+        grafica_8(todas=True)
     if AMBITO != "espana":  # la matriz de hallazgos describe casos concretos del conjunto completo
         grafica_10()
