@@ -31,7 +31,7 @@ Cada publicación indica entre corchetes la imagen que lleva.
 
 **13/20** [11] Fechas de creación: dos cuentas españolas son latentes. @blocusespanol (creada el 16/11/2024) y @blocusmanifestacionmdrz (27/12/2024) no publican hasta octubre de 2026. Una cuenta «dormida» que se activa es un patrón visto en operaciones coordinadas, pero también en cuentas personales reconvertidas: señalo, no concluyo.
 
-**14/20** [12-13] Cuentas que publican en España: 6 con datos de tamaño y fecha, ninguna creada desde septiembre de 2026. @blocusespanol es la mayor, en torno a 900 seguidores declarados; las demás van de 3 a unos 250. De 11 fotos disponibles, 3 (todas de @blocusespanol) llevan una etiqueta de IA incrustada (C2PA/EXIF); ninguna lleva huella de Meta; 16 publicaciones ya no están disponibles.
+**14/20** [12-13] Cuentas que publican en España: 6 con datos de tamaño y fecha, ninguna creada desde septiembre de 2026. @blocusespanol es la mayor, en torno a 900 seguidores declarados; las demás van de 3 a unos 250. De 11 fotos disponibles, 3 (todas de @blocusespanol) declaran en su metadato C2PA, firmado por TikTok, origen «trainedAlgorithmicMedia» (generado por IA; 09/10, 12/10 y 25/10); ninguna lleva huella de Meta; 16 publicaciones ya no están disponibles.
 
 **15/20** [14] País y hashtags: la publicación declara país ES en 12 de 28 y ninguna en FR (16 sin dato). Las francesas: FR en 213 de 290. Comparten #blocus, #manifestation y #fyp. #manifestation, con grafía francesa, aparece en tres publicaciones de @veyoubuy, entre etiquetas en español: rastro de vocabulario francófono, de una sola cuenta.
 

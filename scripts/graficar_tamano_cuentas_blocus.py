@@ -46,7 +46,7 @@ def main():
         conf = tipo == "Confirmada por perfil"
         ax.scatter(f, max(seg, 1), s=25 + 2.2 * meg ** 0.5, color=(COLOR_TEMA[tema.get(nombre, "sin clasificar")] if AMBITO == "espana" else "#1F618D") if conf else "#9DB7CF", alpha=0.8,
                    edgecolor="white", zorder=3)
-        if seg >= 100 or meg >= 20000:
+        if seg >= (100 if AMBITO == "espana" else 700) or meg >= 20000:
             ax.annotate(f"@{nombre}", (f, max(seg, 1)), xytext=(6, 4), textcoords="offset points", fontsize=8)
     ax.set_yscale("log")
     ax.set_ylabel("seguidores declarados (escala logarítmica)", fontsize=9)
