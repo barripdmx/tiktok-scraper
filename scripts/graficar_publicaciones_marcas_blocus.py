@@ -56,7 +56,7 @@ def main():
         ax.barh(orden, vals, left=izq, color=color, label=f"{texto} ({total[clave]})", height=0.75)
         izq = [a + b for a, b in zip(izq, vals)]
     for y, c in enumerate(orden):
-        ax.text(izq[y] + 0.5, y, str(izq[y]), va="center", fontsize=8, color="#555555")
+        ax.text(izq[y] + 0.1, y, str(izq[y]), va="center", fontsize=8, color="#555555")
     if AMBITO == "espana":  # nombre de cada cuenta en el color de su tema
         tema = tema_de_cuentas()
         for lab in ax.get_yticklabels():

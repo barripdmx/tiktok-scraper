@@ -46,7 +46,7 @@ def main():
     }
     meses = [(a, m) for a in range(2018, 2027) for m in range(1, 13) if (a, m) <= (2026, 10)]
     fig, axes = plt.subplots(3, 1, figsize=(16, 9), dpi=100, facecolor="white", sharex=True)
-    fig.subplots_adjust(left=0.06, right=0.97, top=0.84, bottom=0.12, hspace=0.5)
+    fig.subplots_adjust(left=0.06, right=0.97, top=0.79, bottom=0.12, hspace=0.5)
     for ax, (nombre, filas) in zip(axes, grupos.items()):
         conf, est = Counter(), Counter()
         sin = 0

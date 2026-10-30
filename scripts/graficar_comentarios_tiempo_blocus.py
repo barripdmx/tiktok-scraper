@@ -71,8 +71,8 @@ def main():
     n = sum(totales.values())
     fig.text(0.04, 0.94, f"cuándo se escribieron los {n:,} comentarios capturados".replace(",", "."),
              fontsize=17, fontweight="bold", color="#222222")
-    fig.text(0.04, 0.905, f"comentarios y respuestas por día (UTC) en las publicaciones de las cuentas blocus, "
-             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}" + ("; solo publicaciones de cuentas de tema español (28 publicaciones)" if AMBITO == "espana" else f"; las {TOP} cuentas con más comentarios por separado"),
+    fig.text(0.04, 0.905, f"comentarios y respuestas por día (UTC), "
+             f"del {d0:%d/%m/%Y} al {d1:%d/%m/%Y}" + ("; cuentas de tema español (28 publicaciones)" if AMBITO == "espana" else f"; las {TOP} cuentas con más comentarios por separado"),
              fontsize=10.5, color="#555555")
     fig.text(0.04, 0.03, (f"Se omiten {antes} comentarios anteriores al {DESDE:%d/%m/%Y}. " if antes else "") + f"Solo comentarios capturados el 26/10/2026; las publicaciones con comentarios parciales "
              "subrepresentan su actividad. Un pico indica una publicación muy comentada, no coordinación.",

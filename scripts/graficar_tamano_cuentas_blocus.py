@@ -46,7 +46,7 @@ def main():
         conf = tipo == "Confirmada por perfil"
         ax.scatter(f, max(seg, 1), s=25 + 2.2 * meg ** 0.5, color=(COLOR_TEMA[tema.get(nombre, "sin clasificar")] if AMBITO == "espana" else "#1F618D") if conf else "#9DB7CF", alpha=0.8,
                    edgecolor="white", zorder=3)
-        if seg >= 700 or meg >= 20000:
+        if seg >= 100 or meg >= 20000:
             ax.annotate(f"@{nombre}", (f, max(seg, 1)), xytext=(6, 4), textcoords="offset points", fontsize=8)
     ax.set_yscale("log")
     ax.set_ylabel("seguidores declarados (escala logarítmica)", fontsize=9)
@@ -59,7 +59,7 @@ def main():
     recientes = sum(1 for v in cuentas.values() if v[0] >= datetime(2026, 9, 1, tzinfo=v[0].tzinfo))
     fig.text(0.04, 0.94, f"cuentas blocus publicadoras: creación y tamaño ({len(cuentas)} cuentas)",
              fontsize=17, fontweight="bold", color="#222222")
-    fig.text(0.04, 0.905, f"{recientes} se crearon desde septiembre de 2026; tamaño del punto = me gusta totales "
+    fig.text(0.04, 0.905, (f"{recientes} se crearon" if recientes else "Ninguna se creó") + f" desde septiembre de 2026; tamaño del punto = me gusta totales "
              "de la cuenta; " + ("rojo = tema español; tono claro = fecha estimada" if AMBITO == "espana" else "azul oscuro = fecha confirmada por el perfil, claro = estimada"), fontsize=10.5, color="#555555")
     fig.text(0.04, 0.03, "Seguidores y me gusta declarados por TikTok en los metadatos de la publicación (26-27/10/2026). "
              "Fecha de creación: perfil cuando se consultó; si no, UID >> 32 (aproximación).",

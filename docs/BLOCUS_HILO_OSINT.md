@@ -31,7 +31,7 @@ Cada publicación indica entre corchetes la imagen que lleva.
 
 **13/20** [11] Fechas de creación: dos cuentas españolas son latentes. @blocusespanol (creada el 16/11/2024) y @blocusmanifestacionmdrz (27/12/2024) no publican hasta octubre de 2026. Una cuenta «dormida» que se activa es un patrón visto en operaciones coordinadas, pero también en cuentas personales reconvertidas: señalo, no concluyo.
 
-**14/20** [12-13] Tamaño de las cuentas y marcas: compartir la marca «blocus» no implica un mismo origen: es un término francófono para el bloqueo estudiantil, fácil de imitar.
+**14/20** [12-13] Cuentas que publican en España: 6 con datos de tamaño y fecha, ninguna creada desde septiembre de 2026. @blocusespanol es la mayor, en torno a 900 seguidores declarados; las demás van de 3 a unos 250. De 11 fotos disponibles, 3 (todas de @blocusespanol) llevan una etiqueta de IA incrustada (C2PA/EXIF); ninguna lleva huella de Meta; 16 publicaciones ya no están disponibles.
 
 **15/20** [14] País y hashtags: la publicación declara país ES en 12 de 28 y ninguna en FR (16 sin dato). Las francesas: FR en 213 de 290. Comparten #blocus, #manifestation y #fyp. #manifestation, con grafía francesa, aparece en tres publicaciones de @veyoubuy, entre etiquetas en español: rastro de vocabulario francófono, de una sola cuenta.
 
@@ -41,7 +41,7 @@ Cada publicación indica entre corchetes la imagen que lleva.
 
 **18/20** [18] Emojis: en @teamblocus, 241 de 781 comentarios (30,9 %) son combinaciones atípicas de 2 a 4 emojis. En el resto de cuentas, 18 de 9.653 (0,19 %). Intervalo mediano de 31 minutos, sin respuestas. Es una pista de actividad no orgánica en la red francesa.
 
-**19/20** [19] Cronología de esos emojis: del 04 al 25/10, sin picos de sincronía. En las cuentas españolas no se reproduce (3 de 250 comentarios son solo emojis). La anomalía es un hallazgo sobre Francia, no un nexo con España.
+**19/20** [19] Cronología de esos emojis: los 241 comentarios se concentran del 04 al 14/10 (43 el día 09), con 4 pares a menos de 1 minuto y casi nada después del 15. En las cuentas españolas no se reproduce (3 de 250 son solo emojis). Es un hallazgo sobre Francia, no un nexo con España.
 
 **20/20** Conclusión: no hay base para afirmar una conexión operativa. La red española imita la marca y el formato de la francesa, llegó después y no comparte país, idioma, comentaristas ni público apreciable. Pendiente: bio y enlaces externos, archivar las publicaciones antes de que caigan y estudiar @teamblocus. Un indicio no prueba coordinación: describo lo observable, no atribuyo autoría.
 
