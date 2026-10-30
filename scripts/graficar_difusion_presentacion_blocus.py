@@ -88,6 +88,18 @@ def colocar_etiquetas(fig, ax, pos, tam, cuadro=None):
         cajas[n] = mejor[2]
 
 
+def _n_audiencia():
+    """Cuentas con alguna relación en la gráfica 01 (solo en el conjunto completo)."""
+    if AMBITO:
+        return 0
+    from scripts.graficar_cuentas_analizadas_blocus import construir
+    _, d, c, _ = construir()
+    return len({n for k in list(d) + list(c) for n in k})
+
+
+N_AUDIENCIA = _n_audiencia()
+
+
 def grafica_8(por_tema=False, todas=False):
     """todas=True: mismo formato, pero con las relaciones de la gráfica 01 (incluye la audiencia compartida de seguidores y seguidos)."""
     sigue, comenta, compartidos, multi = relaciones()
@@ -101,9 +113,10 @@ def grafica_8(por_tema=False, todas=False):
     for a, b in list(sigue) + list(comenta) + list(compartidos):
         g.add_edge(a, b)
     pos = nx.spring_layout(g, seed=11, k=5.0 if todas else 2.4, iterations=400)
-    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia y España") if por_tema else "difusión entre cuentas: " + ("todas las relaciones" if todas else "enlaces documentados"),
-                    f"{g.number_of_nodes()} cuentas con " + ("alguna relación, incluida la audiencia compartida de seguidores y seguidos"
-                    if todas else "al menos un enlace documentado (seguir, comentar o comentaristas comunes)") + "; cada línea indica qué relación representa",
+    fig, ax = nueva(("difusión entre cuentas de España" if AMBITO == "espana" else "difusión entre cuentas por tema: Francia y España") if por_tema else "difusión entre cuentas: " + ("todas las relaciones" if todas else "contactos directos"),
+                    (f"{g.number_of_nodes()} de las {N_AUDIENCIA} cuentas con audiencia compartida (gráfica 01) tienen además contacto directo: seguir, comentar o comentaristas comunes"
+                     if N_AUDIENCIA and not todas else f"{g.number_of_nodes()} cuentas con " + ("alguna relación, incluida la audiencia compartida de seguidores y seguidos"
+                     if todas else "al menos un contacto directo: seguir, comentar o comentaristas comunes") + "; cada línea indica qué relación representa"),
                     f"{len(multi)} autores comentan en 2 o más cuentas ({sum(len(c) >= 3 for c in multi)} en 3 o más): una persona comentando "
                     "en varias cuentas no demuestra coordinación." + chr(10) + "Seguir y comentar es lo observado, no todo lo existente: de @teamblocus se capturaron 9.995 de 37.500 seguidores y varias listas de seguidos no estaban disponibles." + (" Tamaño del nodo: nº de cuentas con las que se relaciona." if todas else ""))
     ax.axis("off")
