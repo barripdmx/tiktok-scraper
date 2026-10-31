@@ -28,6 +28,7 @@ from tiktok_utils import (
     load_cookies, save_cookies, ensure_context as _ensure_context_base,
     resolve_cookies_path,
     ask_or_arg,
+    metadatos_ampliados, COLUMNAS_AMPLIADAS,
 )
 
 try:
@@ -351,6 +352,7 @@ async def extract_metadata(context, url, username):
             "cover_url": video_obj.get("cover", ""),
             "hashtags": "|".join(hashtags),
             "mentions": "|".join(mentions),
+            **metadatos_ampliados(item),
             "_create_dt": create_time,
         }
     finally:
@@ -377,7 +379,7 @@ def save_results(username, rows, user_info):
               "video_width", "video_height", "video_ratio", "video_likes", "video_vistas",
               "video_compartidos", "video_comentarios", "video_guardados", "username",
               "author_nickname", "author_verified", "music_id", "music_title", "music_author",
-              "cover_url", "hashtags", "mentions"]
+              "cover_url", "hashtags", "mentions"] + COLUMNAS_AMPLIADAS
     
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC)

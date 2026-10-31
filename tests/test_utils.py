@@ -208,3 +208,17 @@ class TestSplitHashtagsRegression:
         result = re.split(wrong_pattern, "python tiktok viral")
         # Con el patrón erróneo, el espacio NO actúa como separador
         assert result == ["python tiktok viral"]
+
+
+def test_metadatos_ampliados():
+    from tiktok_utils import metadatos_ampliados, COLUMNAS_AMPLIADAS
+    item = {"locationCreated": "FR", "IsAigc": False, "penaltyContext": {"status": 102, "reviewed": "0"},
+            "poi": {"name": "Torre Eiffel", "fatherPoiName": "Paris"}, "diversificationLabels": ["Lip-sync", "Performance"],
+            "stickersOnItem": [{"stickerText": ["best", "friend"]}], "anchors": [{"type": 28, "keyword": "Pull"}]}
+    m = metadatos_ampliados(item)
+    assert list(m) == COLUMNAS_AMPLIADAS
+    assert m["pais_creacion"] == "FR" and m["es_aigc"] == "false" and m["moderacion_estado"] == "102"
+    assert m["lugar"] == "Torre Eiffel" and m["lugar_ciudad"] == "Paris"
+    assert m["categorias_recomendador"] == "Lip-sync|Performance" and m["stickers"] == "best friend" and m["anclas"] == "Pull"
+    assert m["moderacion_json"] == '{"status":102,"reviewed":"0"}'
+    assert all(v == "" for v in metadatos_ampliados({}).values())

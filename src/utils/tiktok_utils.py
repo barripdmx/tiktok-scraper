@@ -250,6 +250,79 @@ def parse_count(text: str) -> int:
         return 0
 
 
+def _json(valor) -> str:
+    if valor in (None, "", [], {}):
+        return ""
+    return json.dumps(valor, ensure_ascii=False, separators=(",", ":"))
+
+
+def _celda(valor) -> str:
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    return str(valor)
+
+
+def metadatos_ampliados(item: dict) -> dict:
+    """Metadatos OSINT del itemStruct de una publicación (vídeo o foto) que no son métricas básicas.
+
+    País atribuido por TikTok (locationCreated), idioma, etiquetas de IA, moderación (penaltyContext),
+    lugar etiquetado (poi), categorías del recomendador, anuncios, stickers y anclas. Valores en texto.
+    """
+    item = item or {}
+    pen = item.get("penaltyContext") or {}
+    poi = item.get("poi") or {}
+    duet = item.get("duetInfo") or {}
+    ia = item.get("creatorAIComment") or {}
+    return {k: _celda(v) for k, v in {
+        "pais_creacion": item.get("locationCreated", ""),
+        "idioma_texto": item.get("textLanguage", ""),
+        "idioma_titulo": item.get("titleLanguage", ""),
+        "traducible": item.get("textTranslatable"),
+        "categoria": item.get("CategoryType"),
+        "categorias_recomendador": "|".join(item.get("diversificationLabels") or []),
+        "id_recomendador": item.get("diversificationId"),
+        "es_anuncio": item.get("isAd"),
+        "aigc_tipo": item.get("aigcLabelType"),
+        "aigc_moderacion": item.get("moderationAigcLabelType"),
+        "es_aigc": item.get("IsAigc"),
+        "aviso_ia_visible": item.get("ShowAIGC"),
+        "aviso_ia": item.get("AIGCDescription", ""),
+        "ia_creador_tema": ia.get("hasAITopic"),
+        "ia_creador_motivo": ia.get("notEligibleReason"),
+        "contenido_clasificado": item.get("isContentClassified"),
+        "motivo_clasificacion": item.get("ContentClassificationReason", ""),
+        "moderacion_estado": pen.get("status"),
+        "moderacion_estado_video": pen.get("video_status"),
+        "moderacion_revisado": pen.get("reviewed"),
+        "moderacion_veredicto": pen.get("ec_global_verdict"),
+        "moderacion_seguridad": pen.get("arb_content_safety_status"),
+        "moderacion_penalizacion": pen.get("display_penalty_type"),
+        "moderacion_json": _json(pen),
+        "en_revision": item.get("isReviewing"),
+        "prohibido": item.get("isProhibited"),
+        "retirado": item.get("takeDown"),
+        "aviso_json": _json(item.get("warnInfo")),
+        "control_json": _json(item.get("item_control")),
+        "lugar": poi.get("name", ""),
+        "lugar_direccion": poi.get("address", ""),
+        "lugar_ciudad": poi.get("city") or poi.get("fatherPoiName", ""),
+        "lugar_tipo": poi.get("ttTypeNameTiny", ""),
+        "anclas": "|".join(str(a.get("keyword") or a.get("type", "")) for a in item.get("anchors") or []),
+        "stickers": "|".join(" ".join(s.get("stickerText") or []) for s in item.get("stickersOnItem") or []),
+        "efectos": "|".join(e.get("name", "") for e in item.get("effectStickers") or []),
+        "palabras_sugeridas": "|".join(item.get("suggestedWords") or []),
+        "etiquetas_canal": _json(item.get("channelTags")),
+        "item_original": item.get("originalItem"),
+        "duet_de": duet.get("duetFromId", ""),
+        "programado": item.get("scheduleTime"),
+    }.items()}
+
+
+COLUMNAS_AMPLIADAS = list(metadatos_ampliados({}))
+
+
 # ---------------------------------------------------------------------------
 # PLAYWRIGHT HELPERS (no dependen de config del scraper)
 # ---------------------------------------------------------------------------

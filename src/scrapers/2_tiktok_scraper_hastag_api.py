@@ -49,6 +49,7 @@ from tiktok_utils import (
     extract_video_id_from_url,
     extract_username_from_url,
     parse_count,
+    metadatos_ampliados, COLUMNAS_AMPLIADAS,
     accept_cookies_banner,
     handle_verification,
     ensure_context as _ensure_context_base,
@@ -415,6 +416,7 @@ def item_to_row(item: dict, video_url: str) -> dict:
         "music_title": music.get("title", ""),
         "music_author": music.get("authorName", ""),
         "hashtags": "|".join(hashtags),
+        **metadatos_ampliados(item),
         "_create_dt": create_time,
     }
 
@@ -522,6 +524,7 @@ async def extract_metadata(context, url: str) -> dict:
             "music_title": music.get("title", ""),
             "music_author": music.get("authorName", ""),
             "hashtags": "|".join(hashtags),
+            **metadatos_ampliados(item),
             "_create_dt": create_time,
         }
     finally:
@@ -573,7 +576,7 @@ def save_results(label: str, rows: list) -> dict:
         "video_width", "video_height", "video_likes", "video_vistas", "video_compartidos",
         "video_comentarios", "video_guardados", "username", "author_nickname",
         "author_verified", "music_title", "music_author", "hashtags",
-    ]
+    ] + COLUMNAS_AMPLIADAS
 
     proj_dir = dataset_dir(label)
     json_path = os.path.join(proj_dir, f"{label}_videos_api.json")
