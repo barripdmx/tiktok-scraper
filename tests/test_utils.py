@@ -214,11 +214,16 @@ def test_metadatos_ampliados():
     from tiktok_utils import metadatos_ampliados, COLUMNAS_AMPLIADAS
     item = {"locationCreated": "FR", "IsAigc": False, "penaltyContext": {"status": 102, "reviewed": "0"},
             "poi": {"name": "Torre Eiffel", "fatherPoiName": "Paris"}, "diversificationLabels": ["Lip-sync", "Performance"],
-            "stickersOnItem": [{"stickerText": ["best", "friend"]}], "anchors": [{"type": 28, "keyword": "Pull"}]}
+            "stickersOnItem": [{"stickerText": ["best", "friend"]}], "anchors": [{"type": 28, "keyword": "Pull"}],
+            "author": {"id": "7", "secUid": "S", "signature": "bio"}, "authorStats": {"followingCount": 12},
+            "video": {"subtitleInfos": [{"LanguageCodeName": "spa-ES", "Source": "ASR", "Url": "u"}]},
+            "textExtra": [{"hashtagId": "9", "hashtagName": "blocus"}, {"userId": "1"}]}
     m = metadatos_ampliados(item)
     assert list(m) == COLUMNAS_AMPLIADAS
     assert m["pais_creacion"] == "FR" and m["es_aigc"] == "false" and m["moderacion_estado"] == "102"
     assert m["lugar"] == "Torre Eiffel" and m["lugar_ciudad"] == "Paris"
     assert m["categorias_recomendador"] == "Lip-sync|Performance" and m["stickers"] == "best friend" and m["anclas"] == "Pull"
+    assert m["autor_bio"] == "bio" and m["autor_seguidos"] == "12" and m["subtitulos_idiomas"] == "spa-ES:ASR"
+    assert m["hashtags_ids"] == "9:blocus" and m["fotos_urls"] == ""
     assert m["moderacion_json"] == '{"status":102,"reviewed":"0"}'
     assert all(v == "" for v in metadatos_ampliados({}).values())

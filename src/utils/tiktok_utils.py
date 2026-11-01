@@ -275,6 +275,9 @@ def metadatos_ampliados(item: dict) -> dict:
     poi = item.get("poi") or {}
     duet = item.get("duetInfo") or {}
     ia = item.get("creatorAIComment") or {}
+    autor = item.get("author") or {}
+    subs = (item.get("video") or {}).get("subtitleInfos") or []
+    fotos = (item.get("imagePost") or {}).get("images") or []
     return {k: _celda(v) for k, v in {
         "pais_creacion": item.get("locationCreated", ""),
         "idioma_texto": item.get("textLanguage", ""),
@@ -317,6 +320,15 @@ def metadatos_ampliados(item: dict) -> dict:
         "item_original": item.get("originalItem"),
         "duet_de": duet.get("duetFromId", ""),
         "programado": item.get("scheduleTime"),
+        "autor_uid": autor.get("id", ""),
+        "autor_secuid": autor.get("secUid", ""),
+        "autor_bio": autor.get("signature", ""),
+        "autor_seguidos": (item.get("authorStats") or {}).get("followingCount"),
+        "subtitulos_idiomas": "|".join(f"{x.get('LanguageCodeName', '')}:{x.get('Source', '')}" for x in subs),
+        "subtitulos_urls": "|".join(x.get("Url", "") for x in subs),  # caducan: descargar el texto al capturar
+        "fotos_urls": "|".join((f.get("imageURL") or {}).get("urlList", [""])[0] for f in fotos),
+        "hashtags_ids": "|".join(f"{t.get('hashtagId')}:{t.get('hashtagName')}" for t in item.get("textExtra") or [] if t.get("hashtagName")),
+        "audio_url": (item.get("music") or {}).get("playUrl", ""),
     }.items()}
 
 
