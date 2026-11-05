@@ -26,7 +26,7 @@ PROFILE_DIR = str(ROOT / "drivers/tiktok_profile")
 TERMINOS = ["blocus", "blocus españa", "blocus madrid", "blocus barcelona", "blocus catalunya", "blocus france",
             "blocus belgique", "blocus manifestation", "team blocus", "blocus 31 octubre", "bl0cus", "blokus"]
 NOMBRE_BLOCUS = re.compile(r"bl[o0u]cu?s|blokus|bloquu", re.I)
-COORDINACION = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me|discord\.gg|discord\.com/invite|signal\.group|signal\.me|chat\.whatsapp\.com|wa\.me|snapchat\.com/t)/?[^\s,;]*", re.I)
+COORDINACION = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me|discord\.gg|discord\.com/invite|signal\.group|signal\.me|chat\.whatsapp\.com|wa\.me|snapchat\.com/t)/?[\w\-./#+=?&%~]*", re.I)
 MIN_BASE = 50# por debajo, el porcentaje de crecimiento no es comparable
 FALLOS_BAJA = 2
 
@@ -99,7 +99,8 @@ def miles(n):
 
 def coma(p):
     """Porcentaje con signo y coma decimal: +6,8"""
-    return f"{p:+.1f}".replace(".", ",")
+    p = round(p, 1) + 0.0  # evita «-0,0»
+    return ("0,0" if p == 0 else f"{p:+.1f}").replace(".", ",")
 
 
 def texto_informe(informe, ahora, n_censo):

@@ -10,7 +10,8 @@ def test_alta_estimada():
 
 
 def test_coma():
-    assert coma(6.84) == "+6,8" and coma(-3.7) == "-3,7"
+    assert coma(6.84) == "+6,8" and coma(-3.7) == "-3,7" and coma(-0.02) == "0,0"
+    assert enlaces("https://discord.gg/GYtYpCdWS￼") == ["https://discord.gg/GYtYpCdWS"]
 
 
 def test_ciclo_nueva_renombrada_baja_y_crecimiento():
