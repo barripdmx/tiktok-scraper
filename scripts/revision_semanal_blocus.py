@@ -103,7 +103,7 @@ def coma(p):
     return ("0,0" if p == 0 else f"{p:+.1f}").replace(".", ",")
 
 
-def texto_informe(informe, ahora, n_censo):
+def texto_informe(informe, ahora, n_censo, etiquetadas=()):
     suben = [x for x in informe["crecimiento"] if x[2] > x[1]]
     bajan = [x for x in informe["crecimiento"] if x[2] < x[1]]
     t0 = sum(x[1] for x in informe["crecimiento"])
@@ -112,6 +112,11 @@ def texto_informe(informe, ahora, n_censo):
     if t0:
         lineas.append(f"Conjunto (cuentas con ≥{MIN_BASE} seguidores en la pasada anterior): {miles(t0)} → {miles(t1)} "
                       f"({coma(pct(t0, t1))} %); suben {len(suben)}, bajan {len(bajan)}.")
+        resto = [x for x in informe["crecimiento"] if x[0] not in etiquetadas]
+        r0, r1 = sum(x[1] for x in resto), sum(x[2] for x in resto)
+        if r0 and len(resto) < len(informe["crecimiento"]):
+            lineas.append(f"Sin las {len(informe['crecimiento']) - len(resto)} cuentas etiquetadas (contenido o monetización, no movimiento): "
+                          f"{miles(r0)} → {miles(r1)} ({coma(pct(r0, r1))} %).")
     lineas += ["", f"## Nuevas en el censo: {len(informe['nuevas'])} (creadas en los últimos 30 días: {len(informe['nuevas_recientes'])})"]
     lineas += [f"- @{u} (alta estimada {informe['altas'][u]})" + (" ← reciente" if u in informe["nuevas_recientes"] else "") for u in informe["nuevas"]]
     for titulo, clave in (("Desaparecidas (2 fallos sin éxito entre medias)", "bajas"), ("Reaparecidas", "reaparecidas")):
@@ -238,7 +243,7 @@ async def main():
     carpeta = DIR / "capturas" / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     carpeta.mkdir(parents=True)
     (carpeta / "busqueda_cruda.json").write_text(json.dumps(crudo, ensure_ascii=False), encoding="utf-8")
-    (carpeta / "informe.md").write_text(texto_informe(informe, ahora, len(censo)), encoding="utf-8")
+    (carpeta / "informe.md").write_text(texto_informe(informe, ahora, len(censo), {c["usuario"] for c in censo.values() if c.get("etiqueta")}), encoding="utf-8")
     CENSO.write_text(json.dumps(censo, ensure_ascii=False, indent=1), encoding="utf-8")
     print((carpeta / "informe.md").read_text(encoding="utf-8"))
 

@@ -1,4 +1,4 @@
-from scripts.revision_semanal_blocus import actualizar, alta_estimada, coma, enlaces, informe_vacio, reciente
+from scripts.revision_semanal_blocus import actualizar, alta_estimada, coma, enlaces, informe_vacio, reciente, texto_informe
 
 
 def obs(uid, usuario, seguidores=100, estado="ok"):
@@ -52,3 +52,10 @@ def test_base_pequena_no_cuenta_en_crecimiento():
     actualizar(censo, [obs("7000000000000000002", "x", 5)], "d1", inf)
     actualizar(censo, [obs("7000000000000000002", "x", 50)], "d2", inf)
     assert inf["crecimiento"] == []
+
+
+def test_balance_sin_etiquetadas():
+    inf = informe_vacio()
+    inf["crecimiento"] = [("a", 100, 110), ("b", 1000, 2000)]
+    t = texto_informe(inf, "d", 2, {"b"})
+    assert "1.100 → 2.110" in t and "100 → 110 (+10,0 %)" in t and "1 cuentas etiquetadas" in t
