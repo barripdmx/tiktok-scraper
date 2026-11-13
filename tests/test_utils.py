@@ -227,3 +227,44 @@ def test_metadatos_ampliados():
     assert m["hashtags_ids"] == "9:blocus" and m["fotos_urls"] == ""
     assert m["moderacion_json"] == '{"status":102,"reviewed":"0"}'
     assert all(v == "" for v in metadatos_ampliados({}).values())
+
+
+def test_campos_forenses():
+    from tiktok_utils import campos_forenses, campos_forenses_desde_fila, metadatos_ampliados, COLUMNAS_AMPLIADAS
+    vid = (1_700_000_000 << 32) | 5          # el id esconde su fecha: 2023-11-14 22:13:20 UTC
+    item = {"id": str(vid), "createTime": 1_700_000_000 + 3600,   # publicado 1 h después de crear el id ⇒ borrador
+            "author": {"id": str((1_600_000_000 << 32) | 1)},
+            "video": {"playAddr": "https://x/video/tos/alisg/tos-alisg-pve-0037/a/?bt=1098&q=1", "bitrate": 1125079,
+                      "VQScore": "48.9", "volumeInfo": {"Loudness": -13.9, "Peak": 0.6}},
+            "music": {"id": "77", "playUrl": "https://v/video/tos/no1a/tos-no1a-v-2370-no/b/?bt=125"},
+            "statsV2": {"repostCount": "4"}, "poi": {"cityCode": "2975088", "countryCode": "3017382"},
+            "penaltyContext": {"conclu_calculated_time": str((1_700_000_000 + 100) * 1000)},
+            "warnInfo": [{"key": "electionsTag_banner"}]}
+    f = campos_forenses(item)
+    assert f["video_fecha_utc"] == "2023-11-14 23:13:20" and f["video_snowflake_utc"] == "2023-11-14 22:13:20"
+    assert f["desfase_subida_seg"] == 3600 and f["inferencia_programado"] == 1
+    assert f["autor_fecha_creacion_cuenta"] == "2020-09-13 12:26:40"
+    assert (f["cdn_cluster_video"], f["cdn_cluster_audio"]) == ("alisg", "no1a")
+    assert f["video_bitrate"] == 1125079 and f["video_vqscore"] == "48.9" and f["audio_loudness_lufs"] == -13.9
+    assert f["video_reposts"] == "4" and f["poi_city_code"] == "2975088" and f["music_id"] == "77"
+    assert f["latencia_moderacion_seg"] == -3500.0 and f["banner_institucional_key"] == "electionsTag_banner"
+    # sin bitrate propio cae al bt= de la URL (×1024); un desfase < 5 min no es programado
+    item["video"].pop("bitrate"); item["createTime"] = 1_700_000_010
+    g = campos_forenses(item)
+    assert g["video_bitrate"] == 1098 * 1024 and g["inferencia_programado"] == 0
+    # los campos nuevos van al final de COLUMNAS_AMPLIADAS y un item vacío no inventa datos
+    assert list(campos_forenses({})) == COLUMNAS_AMPLIADAS[-17:] and all(v in ("", None) for v in campos_forenses({}).values())
+    assert list(metadatos_ampliados(item))[-17:] == COLUMNAS_AMPLIADAS[-17:]
+    # las 50 columnas ampliadas previas no se mueven (empiezan en pais_creacion, acaban en audio_url); las 17 nuevas, detrás
+    assert COLUMNAS_AMPLIADAS[0] == "pais_creacion" and COLUMNAS_AMPLIADAS[49] == "audio_url" and len(COLUMNAS_AMPLIADAS) == 67
+    assert COLUMNAS_AMPLIADAS[50] == "video_fecha_utc" and COLUMNAS_AMPLIADAS[-1] == "autor_fecha_creacion_cuenta"
+    # retro-enriquecimiento desde una fila de CSV (video_fecha es %d-%m-%Y local)
+    r = campos_forenses_desde_fila({"video_id": str(vid), "video_fecha": "14-11-2023 12:00:00", "audio_url": "u/video/tos/no1a/x",
+                                    "moderacion_json": "{no json", "aviso_json": '[{"key":"k"}]'})
+    assert r["video_snowflake_utc"] == "2023-11-14 22:13:20" and r["cdn_cluster_audio"] == "no1a"
+    assert r["banner_institucional_key"] == "k" and r["latencia_moderacion_seg"] == ""
+    assert campos_forenses_desde_fila({})["desfase_subida_seg"] == ""
+    assert campos_forenses_desde_fila({"aviso_json": float("nan")})["banner_institucional_key"] == ""
+    assert campos_forenses({"video": {"VQScore": 0}})["video_vqscore"] == 0
+    z = campos_forenses({"video": {"playAddr": "https://v/a.mp4", "subtitleInfos": [{"Url": "https://v/tos-alisg-v-1/x?bt=2"}]}})
+    assert z["cdn_cluster_video"] == "alisg" and z["video_bitrate"] == 2048

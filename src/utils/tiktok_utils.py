@@ -24,7 +24,8 @@ import glob
 import json
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 # ---------------------------------------------------------------------------
 # PARÁMETROS POR LÍNEA DE COMANDOS
@@ -264,6 +265,132 @@ def _celda(valor) -> str:
     return str(valor)
 
 
+# ---------------------------------------------------------------------------
+# CAMPOS FORENSES: snowflake (fechas ocultas en los ids), CDN, calidad, moderación
+# ---------------------------------------------------------------------------
+
+def _entero(valor) -> int:
+    try:
+        return int(float(valor))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _snowflake_ts(valor) -> int:
+    """Unix ts (s) en los 32 bits altos de un id de TikTok (vídeo o usuario); 0 si no es plausible (2014-2036)."""
+    try:
+        ts = int(str(valor).strip()) >> 32
+    except ValueError:
+        return 0
+    return ts if 1_400_000_000 < ts < 2_100_000_000 else 0
+
+
+def _utc(ts: int) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+
+def cluster_cdn(url) -> str:
+    """Nodo físico del CDN de TikTok (no1a=UE, alisg=Singapur, maliva=Virginia…) a partir de una URL de vídeo/audio/subtítulo."""
+    if not isinstance(url, str):
+        return ""
+    m = re.search(r"tos-([a-z0-9]+)-", url) or re.search(r"/video/tos/([a-z0-9]+)/", url)
+    return m.group(1) if m else ""
+
+
+def _bitrate_desde_url(url) -> int | str:
+    """El parámetro bt= del CDN es video.bitrate/1024 (mediana 1024,5 sobre 310 pares reales): se reescala a bps."""
+    try:
+        bt = parse_qs(urlparse(url).query).get("bt", [""])[0]
+    except (AttributeError, ValueError):
+        return ""
+    return int(bt) * 1024 if bt.isdigit() else ""
+
+
+def _latencia_moderacion(conclu_ms, create_ts: int) -> float | str:
+    """Segundos entre la publicación y el veredicto del clasificador de Trust & Safety (conclu_calculated_time)."""
+    ms = _entero(conclu_ms)
+    return round(ms / 1000.0 - create_ts, 2) if ms and create_ts else ""
+
+
+def _derivados_id(create_ts: int, video_id, autor_uid) -> dict:
+    """Fechas y desfase calculables solo con createTime + ids. desfase > 5 min ⇒ vídeo subido como borrador/programado."""
+    sf = _snowflake_ts(video_id)
+    desfase = create_ts - sf if create_ts and sf else ""
+    return {
+        "video_fecha_utc": _utc(create_ts),
+        "video_snowflake_utc": _utc(sf),
+        "desfase_subida_seg": desfase,
+        "inferencia_programado": "" if desfase == "" else int(abs(desfase) > 300),
+        "autor_fecha_creacion_cuenta": _utc(_snowflake_ts(autor_uid)),
+    }
+
+
+def campos_forenses(item: dict) -> dict:
+    """17 campos forenses del itemStruct de TikTok. Vacío ("") cuando el dato no existe (distinto de 0)."""
+    item = item or {}
+    v = item.get("video") or {}
+    music = item.get("music") or {}
+    vol = v.get("volumeInfo") or {}
+    poi = item.get("poi") or {}
+    warn = item.get("warnInfo")
+    subs = v.get("subtitleInfos") or []
+    play = v.get("playAddr") or ""
+    if isinstance(play, dict):
+        play = (play.get("UrlList") or play.get("url_list") or [""])[0]
+    play = play or ((v.get("PlayAddrStruct") or {}).get("UrlList") or [""])[0]
+    sub_url = subs[0].get("Url", "") if subs else ""
+    ref = play if cluster_cdn(play) else (sub_url or play)  # si playAddr no da cluster, prueba el subtítulo
+    create_ts = _entero(item.get("createTime"))
+    der = _derivados_id(create_ts, item.get("id"), (item.get("author") or {}).get("id"))
+    cuenta = der.pop("autor_fecha_creacion_cuenta")  # va la última, como en la especificación
+    return {
+        **der,
+        "cdn_cluster_video": cluster_cdn(ref),
+        "cdn_cluster_audio": cluster_cdn(music.get("playUrl")),
+        "poi_city_code": poi.get("cityCode", ""),
+        "poi_country_code": poi.get("countryCode", ""),
+        "video_reposts": (item.get("statsV2") or {}).get("repostCount"),
+        "video_bitrate": v.get("bitrate") or _bitrate_desde_url(ref),
+        # TikTok lo guarda en video.VQScore; la ruta claInfo.originalLanguageInfo.vqScore no aparece en datos reales
+        "video_vqscore": v["VQScore"] if v.get("VQScore") is not None else ((v.get("claInfo") or {}).get("originalLanguageInfo") or {}).get("vqScore"),
+        "audio_loudness_lufs": vol.get("Loudness"),
+        "audio_peak": vol.get("Peak"),
+        "music_id": music.get("id"),
+        # el item no trae "moderation_info": el sello de tiempo vive en penaltyContext
+        "latencia_moderacion_seg": _latencia_moderacion((item.get("penaltyContext") or {}).get("conclu_calculated_time"), create_ts),
+        "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
+        "autor_fecha_creacion_cuenta": cuenta,
+    }
+
+
+def campos_forenses_desde_fila(row: dict) -> dict:
+    """Los campos forenses que se pueden derivar de una fila de CSV ya capturada, sin volver a TikTok.
+
+    Solo devuelve los calculables (no hay poi/reposts/vqscore/loudness/music_id). Valores de la fila como
+    texto (leer con dtype=str, keep_default_na=False). video_fecha es hora local de la máquina que capturó.
+    """
+    try:
+        create_ts = int(datetime.strptime(str(row.get("video_fecha") or ""), "%d-%m-%Y %H:%M:%S").timestamp())
+    except ValueError:
+        create_ts = 0
+    sub = str(row.get("subtitulos_urls") or "").split("|")[0]
+    def leer(clave, defecto):
+        try:
+            return json.loads(row.get(clave) or "") or defecto
+        except (json.JSONDecodeError, TypeError):  # TypeError: NaN de pandas
+            return defecto
+
+    pen, warn = leer("moderacion_json", {}), leer("aviso_json", [])
+    return {
+        **_derivados_id(create_ts, row.get("video_id"), row.get("autor_uid")),
+        "cdn_cluster_video": cluster_cdn(sub),
+        "cdn_cluster_audio": cluster_cdn(row.get("audio_url")),
+        "video_bitrate": _bitrate_desde_url(sub),
+        "latencia_moderacion_seg": _latencia_moderacion(pen.get("conclu_calculated_time") if isinstance(pen, dict) else None, create_ts),
+        "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
+    }
+
+
 def metadatos_ampliados(item: dict) -> dict:
     """Metadatos OSINT del itemStruct de una publicación (vídeo o foto) que no son métricas básicas.
 
@@ -329,6 +456,7 @@ def metadatos_ampliados(item: dict) -> dict:
         "fotos_urls": "|".join((f.get("imageURL") or {}).get("urlList", [""])[0] for f in fotos),
         "hashtags_ids": "|".join(f"{t.get('hashtagId')}:{t.get('hashtagName')}" for t in item.get("textExtra") or [] if t.get("hashtagName")),
         "audio_url": (item.get("music") or {}).get("playUrl", ""),
+        **campos_forenses(item),  # siempre al final: las columnas anteriores no cambian de sitio
     }.items()}
 
 
