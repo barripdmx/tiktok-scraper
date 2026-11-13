@@ -36,6 +36,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.async_api import async_playwright, TimeoutError as PWTimeoutError
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'utils')))
+from tiktok_utils import COLUMNAS_COMENTARIOS, campos_forenses_comentario, migrar_csv_comentarios
+
 try:
     import tkinter as tk
     from tkinter import filedialog
@@ -216,9 +219,7 @@ def normalizar_texto(s: str) -> str:
 def guardar_csv(comentarios: List[Dict[str, Any]], ruta_csv: str) -> None:
     if not comentarios:
         return
-    campos = ["video_id", "video_url", "username", "comment_id", "fecha",
-              "autor_nombre", "autor_handle", "texto", "likes", "aweme_id_api",
-              "is_reply", "parent_comment_id"]
+    campos = COLUMNAS_COMENTARIOS
     with open(ruta_csv, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=campos)
         w.writeheader()
@@ -229,10 +230,15 @@ def guardar_csv(comentarios: List[Dict[str, Any]], ruta_csv: str) -> None:
 def append_csv(comentarios: List[Dict[str, Any]], ruta_csv: str) -> None:
     if not comentarios:
         return
-    campos = ["video_id", "video_url", "username", "comment_id", "fecha",
-              "autor_nombre", "autor_handle", "texto", "likes", "aweme_id_api",
-              "is_reply", "parent_comment_id"]
+    campos = COLUMNAS_COMENTARIOS
     file_exists = os.path.exists(ruta_csv)
+    if file_exists:
+        migrar_csv_comentarios(ruta_csv)  # CSV antiguo de 12 columnas → 27, sin perder filas
+        with open(ruta_csv, "rb+") as f:  # si no acaba en salto de línea, el nuevo registro se pegaría al último
+            if f.seek(0, 2):
+                f.seek(-1, 2)
+                if f.read(1) not in (b"\n", b"\r"):
+                    f.write(b"\r\n")
     with open(ruta_csv, "a", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=campos)
         if not file_exists:
@@ -1061,6 +1067,7 @@ async def extract_comments_api(
                 "aweme_id_api":      video_id,
                 "is_reply":          "1" if c.get("_is_reply") else "0",
                 "parent_comment_id": c.get("_parent_comment_id", ""),
+                **campos_forenses_comentario(c),
             })
 
         await page.close()

@@ -20,6 +20,7 @@ Importar desde los scrapers:
 import os
 import re
 import sys
+import csv
 import glob
 import json
 import asyncio
@@ -276,13 +277,39 @@ def _entero(valor) -> int:
         return 0
 
 
-def _snowflake_ts(valor) -> int:
-    """Unix ts (s) en los 32 bits altos de un id de TikTok (vídeo o usuario); 0 si no es plausible (2014-2036)."""
+def _id_snowflake(valor) -> tuple:
+    """(unix ts en s, secuencia) de un id snowflake de TikTok: 32 bits altos y bajos. (0, "") si no es plausible (2014-2036)."""
     try:
-        ts = int(str(valor).strip()) >> 32
+        v = int(str(valor).strip())
+    except ValueError:
+        return 0, ""
+    ts = v >> 32
+    return (ts, v & 0xFFFFFFFF) if 1_400_000_000 < ts < 2_100_000_000 else (0, "")
+
+
+def _snowflake_ts(valor) -> int:
+    """Unix ts (s) en los 32 bits altos de un id de TikTok (vídeo o usuario); 0 si no es plausible."""
+    return _id_snowflake(valor)[0]
+
+
+try:
+    from zoneinfo import ZoneInfo
+    _MADRID = ZoneInfo("Europe/Madrid")
+except Exception:  # sin tzdata (Windows limpio): se usa la hora local de la máquina
+    _MADRID = None
+
+
+def _fecha_local_a_ts(texto, formato: str, ref_ts: int = 0) -> int:
+    """Hora local de España (como la guardan los scrapers) → unix UTC; 0 si no se puede leer.
+
+    En la hora repetida del cambio de horario hay dos instantes posibles: se elige el más cercano a ref_ts (snowflake).
+    """
+    try:
+        dt = datetime.strptime(str(texto).strip(), formato)
     except ValueError:
         return 0
-    return ts if 1_400_000_000 < ts < 2_100_000_000 else 0
+    cands = {int(dt.replace(tzinfo=_MADRID, fold=f).timestamp()) for f in (0, 1)} if _MADRID else {int(dt.timestamp())}
+    return min(cands, key=lambda t: abs(t - ref_ts))
 
 
 def _utc(ts: int) -> str:
@@ -293,7 +320,8 @@ def cluster_cdn(url) -> str:
     """Nodo físico del CDN de TikTok (no1a=UE, alisg=Singapur, maliva=Virginia…) a partir de una URL de vídeo/audio/subtítulo."""
     if not isinstance(url, str):
         return ""
-    m = re.search(r"tos-([a-z0-9]+)-", url) or re.search(r"/video/tos/([a-z0-9]+)/", url)
+    m = (re.search(r"tos-([a-z0-9]+)-", url) or re.search(r"/video/tos/([a-z0-9]+)/", url)
+         or re.search(r"musically-([a-z0-9]+)-obj", url))  # avatares antiguos: /musically-maliva-obj/
     return m.group(1) if m else ""
 
 
@@ -367,12 +395,9 @@ def campos_forenses_desde_fila(row: dict) -> dict:
     """Los campos forenses que se pueden derivar de una fila de CSV ya capturada, sin volver a TikTok.
 
     Solo devuelve los calculables (no hay poi/reposts/vqscore/loudness/music_id). Valores de la fila como
-    texto (leer con dtype=str, keep_default_na=False). video_fecha es hora local de la máquina que capturó.
+    texto (leer con dtype=str, keep_default_na=False). video_fecha es hora local de España.
     """
-    try:
-        create_ts = int(datetime.strptime(str(row.get("video_fecha") or ""), "%d-%m-%Y %H:%M:%S").timestamp())
-    except ValueError:
-        create_ts = 0
+    create_ts = _fecha_local_a_ts(row.get("video_fecha"), "%d-%m-%Y %H:%M:%S", _snowflake_ts(row.get("video_id")))
     sub = str(row.get("subtitulos_urls") or "").split("|")[0]
     def leer(clave, defecto):
         try:
@@ -389,6 +414,106 @@ def campos_forenses_desde_fila(row: dict) -> dict:
         "latencia_moderacion_seg": _latencia_moderacion(pen.get("conclu_calculated_time") if isinstance(pen, dict) else None, create_ts),
         "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
     }
+
+
+# ---------------------------------------------------------------------------
+# COMENTARIOS: 12 columnas históricas + 15 forenses (siempre al final)
+# ---------------------------------------------------------------------------
+
+COLUMNAS_COMENTARIOS_BASE = [
+    "video_id", "video_url", "username", "comment_id", "fecha", "autor_nombre", "autor_handle",
+    "texto", "likes", "aweme_id_api", "is_reply", "parent_comment_id",
+]
+COLUMNAS_COMENTARIOS_FORENSES = [
+    "comment_timestamp_unix", "comment_fecha_utc", "comment_snowflake_utc", "comment_secuencia_ms",
+    "comment_ip_label", "comment_idioma", "autor_uid", "autor_secuid", "autor_fecha_creacion_cuenta",
+    "autor_cluster_cdn", "total_respuestas_hilo", "like_del_creador", "comentario_fijado",
+    "reply_to_comment_id", "reply_to_userid",
+]
+COLUMNAS_COMENTARIOS = COLUMNAS_COMENTARIOS_BASE + COLUMNAS_COMENTARIOS_FORENSES
+
+
+def _bool(v) -> int:
+    """0/1 también desde texto de CSV: "0", "false" y "" son falsos."""
+    return int(str(v).strip().lower() not in ("", "0", "false", "none", "null"))
+
+
+def _o_vacio(valor, convertir=_entero):
+    """"" solo si el dato falta (None); un 0 real se conserva."""
+    return "" if valor is None else convertir(valor)
+
+
+def campos_forenses_comentario(c: dict) -> dict:
+    """15 campos forenses de un comentario crudo de /api/comment/list/ o /api/comment/list/reply/.
+
+    create_time (la fecha real) va entre 9 s y 25 min DETRÁS del snowflake del cid (mediana 29 s): no coinciden.
+    reply_to_reply_id/reply_to_userid solo vienen cuando la respuesta contesta a otra respuesta (distinta del raíz).
+    """
+    c = c if isinstance(c, dict) else {}
+    user = c.get("user") if isinstance(c.get("user"), dict) else {}
+    sf, seq = _id_snowflake(c.get("cid"))
+    ct = _entero(c.get("create_time"))
+    avatar = next((k for u in ((user.get("avatar_thumb") or {}).get("url_list") or []) if (k := cluster_cdn(u))), "")
+    pos, pin = c.get("stick_position"), c.get("author_pin")
+    sin_destino = ("", "0", "None")
+    return {
+        "comment_timestamp_unix": ct or sf or "",
+        "comment_fecha_utc": _utc(ct or sf),
+        "comment_snowflake_utc": _utc(sf),
+        "comment_secuencia_ms": seq,
+        "comment_ip_label": _o_vacio(c.get("ip_label"), str),  # la API web actual no lo devuelve (0 de 628)
+        "comment_idioma": _o_vacio(c.get("comment_language"), str),
+        "autor_uid": _o_vacio(user.get("uid"), str),
+        "autor_secuid": _o_vacio(user.get("sec_uid"), str),
+        "autor_fecha_creacion_cuenta": _utc(_snowflake_ts(user.get("uid"))),
+        "autor_cluster_cdn": avatar,
+        "total_respuestas_hilo": _o_vacio(c.get("reply_comment_total")),  # solo en comentarios raíz
+        "like_del_creador": _o_vacio(c.get("is_author_digged"), _bool),
+        "comentario_fijado": "" if pos is None and pin is None else int(_entero(pos) > 0 or bool(_bool(pin))),
+        "reply_to_comment_id": "" if str(c.get("reply_to_reply_id")) in sin_destino else str(c["reply_to_reply_id"]),
+        "reply_to_userid": "" if str(c.get("reply_to_userid")) in sin_destino else str(c["reply_to_userid"]),
+    }
+
+
+def campos_forenses_comentario_desde_fila(row: dict) -> dict:
+    """Los 4 campos temporales calculables de una fila de CSV antiguo (12 columnas); el resto queda "".
+
+    La hora sale de `fecha` (create_time, local de España); el snowflake solo desambigua la hora repetida
+    del cambio de horario o sustituye a una `fecha` ilegible (entonces va ~29 s adelantado).
+    """
+    sf, seq = _id_snowflake(row.get("comment_id"))
+    ts = _fecha_local_a_ts(row.get("fecha"), "%Y-%m-%d %H:%M:%S", sf) or sf
+    res = dict.fromkeys(COLUMNAS_COMENTARIOS_FORENSES, "")
+    res.update(comment_timestamp_unix=ts or "", comment_fecha_utc=_utc(ts), comment_snowflake_utc=_utc(sf), comment_secuencia_ms=seq)
+    return res
+
+
+def migrar_csv_comentarios(ruta: str) -> int:
+    """Pasa in situ un CSV de comentarios de 12 columnas a las 27, sin perder filas ni columnas. Devuelve las filas migradas.
+
+    0 si ya está al día. Lanza ValueError (sin tocar el fichero) si trae columnas ajenas que se perderían.
+    """
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        lector = csv.DictReader(f)
+        if lector.fieldnames == COLUMNAS_COMENTARIOS:
+            return 0
+        ajenas = [c for c in lector.fieldnames or [] if c not in COLUMNAS_COMENTARIOS]
+        if ajenas:
+            raise ValueError(f"{ruta}: columnas ajenas {ajenas}; no se migra para no perderlas")
+        filas = list(lector)
+    if any(None in f or None in f.values() for f in filas):  # DictReader pone aquí las filas con más o menos campos
+        raise ValueError(f"{ruta}: filas con nº de campos distinto a la cabecera; no se migra")
+    tmp = ruta + ".tmp"
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=COLUMNAS_COMENTARIOS)
+        w.writeheader()
+        for fila in filas:
+            for k, v in campos_forenses_comentario_desde_fila(fila).items():
+                if not fila.get(k):
+                    fila[k] = v
+            w.writerow(fila)
+    os.replace(tmp, ruta)
+    return len(filas)
 
 
 def metadatos_ampliados(item: dict) -> dict:

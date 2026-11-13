@@ -268,3 +268,88 @@ def test_campos_forenses():
     assert campos_forenses({"video": {"VQScore": 0}})["video_vqscore"] == 0
     z = campos_forenses({"video": {"playAddr": "https://v/a.mp4", "subtitleInfos": [{"Url": "https://v/tos-alisg-v-1/x?bt=2"}]}})
     assert z["cdn_cluster_video"] == "alisg" and z["video_bitrate"] == 2048
+
+
+def test_campos_forenses_comentario(tmp_path):
+    import csv
+    from tiktok_utils import (campos_forenses_comentario, campos_forenses_comentario_desde_fila, migrar_csv_comentarios,
+                              cluster_cdn, COLUMNAS_COMENTARIOS, COLUMNAS_COMENTARIOS_BASE, COLUMNAS_COMENTARIOS_FORENSES)
+    # 12 históricas intactas y primeras; 15 forenses detrás
+    assert COLUMNAS_COMENTARIOS_BASE[:5] == ["video_id", "video_url", "username", "comment_id", "fecha"] and len(COLUMNAS_COMENTARIOS) == 27
+    assert COLUMNAS_COMENTARIOS[11] == "parent_comment_id" and COLUMNAS_COMENTARIOS[12] == "comment_timestamp_unix"
+    cid = (1_700_000_000 << 32) | 99
+    c = {"cid": str(cid), "create_time": 1_700_000_030, "comment_language": "es", "reply_comment_total": 0,
+         "is_author_digged": False, "stick_position": 0, "author_pin": False,
+         "reply_to_reply_id": "770", "reply_to_userid": "55",
+         "user": {"uid": str((1_600_000_000 << 32) | 1), "sec_uid": "SEC",
+                  "avatar_thumb": {"url_list": ["https://p16/musically-maliva-obj/x", "https://p16/tos-no1a-avt-1/y"]}}}
+    f = campos_forenses_comentario(c)
+    assert list(f) == COLUMNAS_COMENTARIOS_FORENSES
+    # create_time manda sobre el snowflake (que va ~30 s por detrás); la secuencia son los 32 bits bajos
+    assert f["comment_timestamp_unix"] == 1_700_000_030 and f["comment_fecha_utc"] == "2023-11-14 22:13:50"
+    assert f["comment_snowflake_utc"] == "2023-11-14 22:13:20" and f["comment_secuencia_ms"] == 99
+    assert f["autor_fecha_creacion_cuenta"] == "2020-09-13 12:26:40" and f["autor_cluster_cdn"] == "maliva"
+    # los ceros reales se conservan; lo que falta es ""
+    assert f["total_respuestas_hilo"] == 0 and f["like_del_creador"] == 0 and f["comentario_fijado"] == 0
+    assert f["comment_ip_label"] == "" and f["comment_idioma"] == "es"
+    assert (f["reply_to_comment_id"], f["reply_to_userid"]) == ("770", "55")
+    # respuesta directa al raíz: reply_to_reply_id "0" no es arista; sin author_pin ni stick → ""
+    g = campos_forenses_comentario({"cid": str(cid), "reply_to_reply_id": "0", "is_author_digged": True, "author_pin": True})
+    assert g["reply_to_comment_id"] == "" and g["like_del_creador"] == 1 and g["comentario_fijado"] == 1
+    assert g["total_respuestas_hilo"] == "" and g["comentario_fijado"] == 1
+    assert all(v == "" for v in campos_forenses_comentario({}).values()) and campos_forenses_comentario(None)["autor_uid"] == ""
+    assert cluster_cdn("https://x/musically-useast2a-obj/y") == "useast2a"
+    # retro: la hora sale de `fecha` (local España), no del snowflake
+    r = campos_forenses_comentario_desde_fila({"comment_id": str(cid), "fecha": "2023-11-14 23:14:00"})
+    assert r["comment_timestamp_unix"] == 1_700_000_040 and r["comment_fecha_utc"] == "2023-11-14 22:14:00"
+    assert r["comment_snowflake_utc"] == "2023-11-14 22:13:20" and r["comment_secuencia_ms"] == 99 and r["autor_uid"] == ""
+    # fecha ilegible o NaN → cae al snowflake; id corrupto → todo ""
+    assert campos_forenses_comentario_desde_fila({"comment_id": str(cid), "fecha": float("nan")})["comment_timestamp_unix"] == 1_700_000_000
+    assert campos_forenses_comentario_desde_fila({"comment_id": "abc", "fecha": ""})["comment_fecha_utc"] == ""
+    # hora repetida del cambio de horario (26-10-2025 02:30 ocurre dos veces): gana el instante más cercano al snowflake
+    utc_0030 = 1_761_438_600  # 2025-10-26 00:30 UTC = 02:30 CEST (1ª vez); 01:30 UTC = 02:30 CET (2ª)
+    for ts in (utc_0030, utc_0030 + 3600):
+        assert campos_forenses_comentario_desde_fila({"comment_id": str((ts - 20) << 32), "fecha": "2025-10-26 02:30:00"})["comment_timestamp_unix"] == ts
+    # migración in situ 12→27: conserva filas y columnas, idempotente, y no pisa con columnas ajenas
+    ruta = str(tmp_path / "c.csv")
+    with open(ruta, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLUMNAS_COMENTARIOS_BASE); w.writeheader()
+        w.writerow({"video_id": "1", "comment_id": str(cid), "fecha": "2023-11-14 23:14:00", "texto": "hola, \"qué\"", "likes": "0"})
+    assert migrar_csv_comentarios(ruta) == 1 and migrar_csv_comentarios(ruta) == 0
+    fila = next(csv.DictReader(open(ruta, encoding="utf-8-sig", newline="")))
+    assert list(fila) == COLUMNAS_COMENTARIOS and fila["texto"] == 'hola, "qué"' and fila["likes"] == "0"
+    assert fila["comment_fecha_utc"] == "2023-11-14 22:14:00" and fila["reply_to_userid"] == ""
+    ajeno = str(tmp_path / "a.csv")
+    open(ajeno, "w", encoding="utf-8-sig").write("comment_id,sentiment\n1,POS\n")
+    try:
+        migrar_csv_comentarios(ajeno); assert False
+    except ValueError:
+        assert open(ajeno, encoding="utf-8-sig").read().startswith("comment_id,sentiment")
+
+
+def test_comentarios_casos_limite(tmp_path):
+    import csv, importlib.util
+    from tiktok_utils import campos_forenses_comentario, migrar_csv_comentarios, COLUMNAS_COMENTARIOS, COLUMNAS_COMENTARIOS_BASE
+    # booleanos que llegan como texto
+    for v in ("0", "false", ""):
+        g = campos_forenses_comentario({"is_author_digged": v, "author_pin": v})
+        assert g["like_del_creador"] == 0 and g["comentario_fijado"] == 0
+    assert campos_forenses_comentario({"is_author_digged": "1", "stick_position": "2"})["comentario_fijado"] == 1
+    # CSV con filas de más campos: no se migra ni se toca
+    mal = tmp_path / "m.csv"
+    mal.write_text(",".join(COLUMNAS_COMENTARIOS_BASE) + "\n" + ",".join(["x"] * 14) + "\n", encoding="utf-8-sig")
+    antes = mal.read_bytes()
+    try:
+        migrar_csv_comentarios(str(mal)); assert False
+    except ValueError:
+        assert mal.read_bytes() == antes
+    # append_csv sobre un CSV de 27 columnas sin salto de línea final: no pega registros
+    spec = importlib.util.spec_from_file_location("sc", "src/scrapers/2_tiktok_scraper_comentarios_api.py")
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    ruta = str(tmp_path / "c.csv")
+    m.append_csv([{"video_id": "1", "comment_id": "1"}], ruta)
+    with open(ruta, "rb+") as f:
+        data = f.read().rstrip(b"\r\n"); f.seek(0); f.truncate(); f.write(data)
+    m.append_csv([{"video_id": "2", "comment_id": "2"}], ruta)
+    filas = list(csv.DictReader(open(ruta, encoding="utf-8-sig", newline="")))
+    assert [r["video_id"] for r in filas] == ["1", "2"] and list(filas[0]) == COLUMNAS_COMENTARIOS
