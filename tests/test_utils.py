@@ -287,7 +287,7 @@ def test_campos_forenses_comentario(tmp_path):
     assert list(f) == COLUMNAS_COMENTARIOS_FORENSES
     # create_time manda sobre el snowflake (que va ~30 s por detrás); la secuencia son los 32 bits bajos
     assert f["comment_timestamp_unix"] == 1_700_000_030 and f["comment_fecha_utc"] == "2023-11-14 22:13:50"
-    assert f["comment_snowflake_utc"] == "2023-11-14 22:13:20" and f["comment_secuencia_ms"] == 99
+    assert f["comment_snowflake_utc"] == "2023-11-14 22:13:20" and f["comment_secuencia"] == 99
     assert f["autor_fecha_creacion_cuenta"] == "2020-09-13 12:26:40" and f["autor_cluster_cdn"] == "maliva"
     # los ceros reales se conservan; lo que falta es ""
     assert f["total_respuestas_hilo"] == 0 and f["like_del_creador"] == 0 and f["comentario_fijado"] == 0
@@ -302,7 +302,7 @@ def test_campos_forenses_comentario(tmp_path):
     # retro: la hora sale de `fecha` (local España), no del snowflake
     r = campos_forenses_comentario_desde_fila({"comment_id": str(cid), "fecha": "2023-11-14 23:14:00"})
     assert r["comment_timestamp_unix"] == 1_700_000_040 and r["comment_fecha_utc"] == "2023-11-14 22:14:00"
-    assert r["comment_snowflake_utc"] == "2023-11-14 22:13:20" and r["comment_secuencia_ms"] == 99 and r["autor_uid"] == ""
+    assert r["comment_snowflake_utc"] == "2023-11-14 22:13:20" and r["comment_secuencia"] == 99 and r["autor_uid"] == ""
     # fecha ilegible o NaN → cae al snowflake; id corrupto → todo ""
     assert campos_forenses_comentario_desde_fila({"comment_id": str(cid), "fecha": float("nan")})["comment_timestamp_unix"] == 1_700_000_000
     assert campos_forenses_comentario_desde_fila({"comment_id": "abc", "fecha": ""})["comment_fecha_utc"] == ""

@@ -425,7 +425,7 @@ COLUMNAS_COMENTARIOS_BASE = [
     "texto", "likes", "aweme_id_api", "is_reply", "parent_comment_id",
 ]
 COLUMNAS_COMENTARIOS_FORENSES = [
-    "comment_timestamp_unix", "comment_fecha_utc", "comment_snowflake_utc", "comment_secuencia_ms",
+    "comment_timestamp_unix", "comment_fecha_utc", "comment_snowflake_utc", "comment_secuencia",
     "comment_ip_label", "comment_idioma", "autor_uid", "autor_secuid", "autor_fecha_creacion_cuenta",
     "autor_cluster_cdn", "total_respuestas_hilo", "like_del_creador", "comentario_fijado",
     "reply_to_comment_id", "reply_to_userid",
@@ -460,7 +460,7 @@ def campos_forenses_comentario(c: dict) -> dict:
         "comment_timestamp_unix": ct or sf or "",
         "comment_fecha_utc": _utc(ct or sf),
         "comment_snowflake_utc": _utc(sf),
-        "comment_secuencia_ms": seq,
+        "comment_secuencia": seq,
         "comment_ip_label": _o_vacio(c.get("ip_label"), str),  # la API web actual no lo devuelve (0 de 628)
         "comment_idioma": _o_vacio(c.get("comment_language"), str),
         "autor_uid": _o_vacio(user.get("uid"), str),
@@ -484,7 +484,7 @@ def campos_forenses_comentario_desde_fila(row: dict) -> dict:
     sf, seq = _id_snowflake(row.get("comment_id"))
     ts = _fecha_local_a_ts(row.get("fecha"), "%Y-%m-%d %H:%M:%S", sf) or sf
     res = dict.fromkeys(COLUMNAS_COMENTARIOS_FORENSES, "")
-    res.update(comment_timestamp_unix=ts or "", comment_fecha_utc=_utc(ts), comment_snowflake_utc=_utc(sf), comment_secuencia_ms=seq)
+    res.update(comment_timestamp_unix=ts or "", comment_fecha_utc=_utc(ts), comment_snowflake_utc=_utc(sf), comment_secuencia=seq)
     return res
 
 
