@@ -160,6 +160,25 @@ def is_likely_in_date_range(
     return True
 
 
+def id_posible_en_rango(video_id: str, start_dt, end_dt, margen_dias: int = 14) -> bool:
+    """Filtro previo por la fecha del id, sin descartar vídeos que se publicaron más tarde que su id.
+
+    El id guarda el instante en que se CREÓ el vídeo; createTime (la fecha real) puede ser posterior si estaba
+    como borrador o programado, nunca anterior. Por eso por arriba basta 1 día de margen y por abajo se deja
+    `margen_dias`. El filtro definitivo se aplica luego sobre createTime.
+    """
+    if not start_dt and not end_dt:
+        return True
+    d = get_date_from_video_id(video_id)
+    if not d:
+        return True
+    if start_dt and d.date() < (start_dt - timedelta(days=margen_dias)).date():
+        return False
+    if end_dt and d.date() > (end_dt + timedelta(days=1)).date():
+        return False
+    return True
+
+
 def is_in_date_range(
     video_id: str,
     start_dt: datetime,
@@ -353,6 +372,72 @@ def _bucket_cols(prefijo: str, url) -> dict:
     return {f"{prefijo}_origin_bucket": bucket, f"{prefijo}_bucket_suffix": sufijo}
 
 
+def escribir_atomico(ruta: str, escribir, **kw) -> None:
+    """Escribe en un temporal propio del proceso y lo cambia por `ruta` de golpe: nunca queda un fichero a medias."""
+    tmp = f"{ruta}.{os.getpid()}.tmp"
+    with open(tmp, "w", **kw) as f:
+        escribir(f)
+    os.replace(tmp, ruta)
+
+
+def leer_filas_previas(json_path: str, csv_path: str) -> dict:
+    """Vídeos ya capturados, por video_id: CSV como base y JSON encima (más completo).
+
+    Si un fichero existe pero no se puede leer se sigue con el otro; si existen y NINGUNO se lee, lanza
+    RuntimeError para no sobrescribir un histórico que no se ha podido recuperar.
+    """
+    filas, errores, leido = {}, [], False
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    if r.get("video_id"):
+                        filas[str(r["video_id"])] = dict(r)
+            leido = True
+        except (OSError, csv.Error, UnicodeDecodeError) as e:
+            errores.append(f"{csv_path}: {e}")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, encoding="utf-8") as f:
+                datos = json.load(f)
+            for r in (datos.get("videos") if isinstance(datos, dict) else datos) or []:
+                if isinstance(r, dict) and r.get("video_id"):
+                    filas[str(r["video_id"])] = {**filas.get(str(r["video_id"]), {}), **r}
+            leido = True
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            errores.append(f"{json_path}: {e}")
+    if errores and not leido:
+        raise RuntimeError("No se pudo leer el histórico; no se sobrescribe: " + " | ".join(errores))
+    if errores:
+        print("⚠️ Histórico leído solo en parte: " + " | ".join(errores))
+    return filas
+
+
+def fusionar_filas_video(previas: dict, nuevas: list) -> list:
+    """Suma `nuevas` a `previas` por video_id sin perder nada: un valor vacío nuevo no pisa uno ya capturado.
+
+    A las filas antiguas (capturadas antes de los campos forenses) se les rellena lo calculable desde la propia fila.
+    """
+    for r in nuevas:
+        vid = str(r.get("video_id") or "")
+        if not vid:
+            continue
+        fila = dict(previas.get(vid, {}))
+        for k, v in r.items():
+            if v not in ("", None) or k not in fila:
+                fila[k] = v
+        previas[vid] = fila
+    for fila in previas.values():
+        try:
+            retro = campos_forenses_desde_fila(fila)
+        except Exception:  # una fila rara no debe impedir guardar el resto
+            continue
+        for k, v in retro.items():
+            if fila.get(k) in (None, "") and v not in (None, ""):
+                fila[k] = v
+    return list(previas.values())
+
+
 def _bitrate_desde_url(url) -> int | str:
     """El parámetro bt= del CDN es video.bitrate/1024 (mediana 1024,5 sobre 310 pares reales): se reescala a bps."""
     try:
@@ -396,6 +481,9 @@ def campos_forenses(item: dict) -> dict:
     play = play or ((v.get("PlayAddrStruct") or {}).get("UrlList") or [""])[0]
     sub_url = subs[0].get("Url", "") if subs else ""
     ref = play if cluster_cdn(play) else (sub_url or play)  # si playAddr no da cluster, prueba el subtítulo
+    # el bucket completo puede estar en otra URL del payload que la usada para el clúster
+    candidatas = [play, *((v.get("PlayAddrStruct") or {}).get("UrlList") or []), v.get("downloadAddr"), sub_url]
+    url_bucket = next((u for u in candidatas if bucket_cdn(u)[0]), ref)
     create_ts = _entero(item.get("createTime"))
     der = _derivados_id(create_ts, item.get("id"), (item.get("author") or {}).get("id"))
     cuenta = der.pop("autor_fecha_creacion_cuenta")  # va la última, como en la especificación
@@ -416,7 +504,7 @@ def campos_forenses(item: dict) -> dict:
         "latencia_moderacion_seg": _latencia_moderacion((item.get("penaltyContext") or {}).get("conclu_calculated_time"), create_ts),
         "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
         "autor_fecha_creacion_cuenta": cuenta,
-        **_bucket_cols("video", ref),
+        **_bucket_cols("video", url_bucket),
         **_bucket_cols("audio", music.get("playUrl")),
     }
 
@@ -486,7 +574,8 @@ def campos_forenses_comentario(c: dict) -> dict:
     user = c.get("user") if isinstance(c.get("user"), dict) else {}
     sf, seq = _id_snowflake(c.get("cid"))
     ct = _entero(c.get("create_time"))
-    av_url = next((u for u in ((user.get("avatar_thumb") or {}).get("url_list") or []) if cluster_cdn(u)), "")
+    urls_av = (user.get("avatar_thumb") or {}).get("url_list") or []
+    av_url = next((u for u in urls_av if bucket_cdn(u)[0]), next((u for u in urls_av if cluster_cdn(u)), ""))
     avatar = cluster_cdn(av_url)
     av_bucket, av_sufijo, av_legacy = bucket_cdn(av_url)
     pos, pin = c.get("stick_position"), c.get("author_pin")

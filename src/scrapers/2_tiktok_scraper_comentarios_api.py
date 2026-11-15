@@ -171,6 +171,9 @@ def close_logging():
 def seleccionar_csv() -> str:
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         return sys.argv[1]
+    if not sys.stdin.isatty():  # lanzado desde el menú: ni diálogo Tk ni input() invisibles
+        print("❌ Falta el CSV de vídeos (o la ruta no existe): pásalo como primer argumento.")
+        raise SystemExit(1)
     if _HAS_TK:
         root = tk.Tk(); root.withdraw()
         ruta = filedialog.askopenfilename(
@@ -189,7 +192,7 @@ def seleccionar_csv() -> str:
 
 
 def cargar_urls_desde_csv(ruta_csv: str) -> List[str]:
-    with open(ruta_csv, "r", encoding="utf-8-sig") as f:
+    with open(ruta_csv, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         rows   = list(reader)
     if not rows:

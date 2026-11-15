@@ -278,7 +278,7 @@ from src.utils.tiktok_relaciones_entrada import account_name, read_accounts
 
 
 # Archivos auxiliares que nunca son la salida de un paso.
-IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint")
+IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint", "_no_disponibles")
 
 # Nombres que delatan una prueba o un descarte: se aceptan, pero pierden
 # frente a cualquier archivo equivalente que no los lleve.

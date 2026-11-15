@@ -50,6 +50,7 @@ from tiktok_utils import (
     extract_username_from_url,
     parse_count,
     metadatos_ampliados, COLUMNAS_AMPLIADAS,
+    leer_filas_previas, fusionar_filas_video, escribir_atomico,
     accept_cookies_banner,
     handle_verification,
     ensure_context as _ensure_context_base,
@@ -582,39 +583,20 @@ def save_results(label: str, rows: list) -> dict:
     json_path = os.path.join(proj_dir, f"{label}_videos_api.json")
     csv_path  = os.path.join(proj_dir, f"{label}_videos_api.csv")
 
-    # Fusiona con lo ya capturado en pasadas anteriores: la búsqueda/hashtag de
-    # TikTok no es exhaustiva ni determinista, así que una recaptura (p.ej. con
-    # más rango de fechas) solo debe SUMAR vídeos, nunca perder los que ya
-    # estaban por no haber salido esta vez.
-    existing = {}
-    if os.path.exists(json_path):
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                for r in json.load(f):
-                    vid = r.get("video_id")
-                    if vid:
-                        existing[vid] = r
-        except Exception:
-            pass
-    n_previos = len(existing)
+    # Fusiona con lo ya capturado en pasadas anteriores (JSON y CSV): la búsqueda/hashtag de
+    # TikTok no es exhaustiva ni determinista, así que una recaptura solo debe SUMAR vídeos y
+    # datos, nunca perder los que ya estaban ni vaciar un campo ya capturado.
+    previas = leer_filas_previas(json_path, csv_path)  # RuntimeError si hay histórico ilegible
+    n_previos = len(previas)
+    merged = fusionar_filas_video(previas, rows)
 
-    for r in rows:
-        vid = r.get("video_id")
-        if vid:
-            existing[vid] = r
+    escribir_atomico(json_path, lambda f: json.dump(merged, f, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
-    merged = list(existing.values())
-
-    # JSON
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=2, default=str)
-
-    # CSV
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore",
-                           quoting=csv.QUOTE_NONNUMERIC)
+    def _csv(f):
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore", quoting=csv.QUOTE_NONNUMERIC)
         w.writeheader()
         w.writerows(merged)
+    escribir_atomico(csv_path, _csv, newline="", encoding="utf-8-sig")
 
     print(f"\n📁 JSON: {json_path}")
     print(f"📄 CSV:  {csv_path}")

@@ -396,3 +396,82 @@ def test_comentarios_casos_limite(tmp_path):
     m.append_csv([{"video_id": "2", "comment_id": "2"}], ruta)
     filas = list(csv.DictReader(open(ruta, encoding="utf-8-sig", newline="")))
     assert [r["video_id"] for r in filas] == ["1", "2"] and list(filas[0]) == COLUMNAS_COMENTARIOS
+
+
+def test_fusion_videos_y_escritura(tmp_path):
+    import csv, json, importlib.util
+    from tiktok_utils import leer_filas_previas, fusionar_filas_video, escribir_atomico, COLUMNAS_AMPLIADAS
+    jp, cp = str(tmp_path / "a.json"), str(tmp_path / "a.csv")
+    assert leer_filas_previas(jp, cp) == {}
+    # solo CSV (el JSON falta): el histórico se recupera en vez de perderse
+    with open(cp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["video_id", "video_fecha", "poi_city_code"]); w.writeheader()
+        w.writerow({"video_id": "1", "video_fecha": "14-11-2023 12:00:00", "poi_city_code": "77"})
+    previas = leer_filas_previas(jp, cp)
+    assert list(previas) == ["1"] and previas["1"]["poi_city_code"] == "77"
+    # un valor nuevo vacío no pisa el ya capturado; un 0 real sí cuenta; los vídeos nuevos se suman
+    vid = str((1_700_000_000 << 32) | 5)
+    previas[vid] = {"video_id": vid, "video_fecha": "14-11-2023 23:13:20"}
+    filas = fusionar_filas_video(previas, [{"video_id": "1", "poi_city_code": "", "video_likes": 0}, {"video_id": "2"}, {"sin_id": 1}])
+    por = {r["video_id"]: r for r in filas}
+    assert set(por) == {"1", vid, "2"} and por["1"]["poi_city_code"] == "77" and por["1"]["video_likes"] == 0
+    # las filas antiguas reciben lo calculable (fecha UTC desde video_fecha, desfase desde el id)
+    assert por[vid]["video_fecha_utc"] == "2023-11-14 22:13:20" and por[vid]["desfase_subida_seg"] == 0
+    # JSON ilegible + CSV bueno: se sigue con el CSV; ambos ilegibles: no se sobrescribe nada
+    open(jp, "w", encoding="utf-8").write("{roto")
+    assert list(leer_filas_previas(jp, cp)) == ["1"]
+    open(cp, "wb").write(bytes([0xFF, 0xFE, 0x00, 0xFF]))
+    try:
+        leer_filas_previas(jp, cp); assert False
+    except RuntimeError:
+        assert open(jp, encoding="utf-8").read() == "{roto"
+    # escritura atómica: sin temporales y sustitución completa
+    escribir_atomico(jp, lambda f: f.write("[]"), encoding="utf-8")
+    assert open(jp, encoding="utf-8").read() == "[]" and [x.name for x in tmp_path.iterdir() if x.name.endswith(".tmp")] == []
+
+    # scraper de perfil: dos pasadas suman, y el CSV no repite cabeceras (music_id estaba duplicado)
+    spec = importlib.util.spec_from_file_location("su", "src/scrapers/1_tiktok_scraper_user.py")
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    m.dataset_dir = lambda nombre: str(tmp_path)
+    m.save_results("u", [{"video_id": "10", "music_id": "m"}], {})
+    m.save_results("u", [{"video_id": "11"}], {})
+    cab = next(csv.reader(open(tmp_path / "user_u_videos.csv", encoding="utf-8-sig", newline="")))
+    assert len(cab) == len(set(cab)) and cab[-4:] == ["video_origin_bucket", "video_bucket_suffix", "audio_origin_bucket", "audio_bucket_suffix"]
+    assert [r["video_id"] for r in csv.DictReader(open(tmp_path / "user_u_videos.csv", encoding="utf-8-sig", newline=""))] == ["10", "11"]
+
+
+def test_bucket_en_url_alternativa_y_csv_sin_tty():
+    import importlib.util
+    from tiktok_utils import campos_forenses, campos_forenses_comentario
+    # playAddr da clúster pero sin bucket completo: se toma de otra URL del mismo payload
+    it = {"video": {"playAddr": "https://v/video/tos/no1a/x", "PlayAddrStruct": {"UrlList": ["https://v/video/tos/no1a/tos-no1a-ve-0068-no/y"]}}}
+    f = campos_forenses(it)
+    assert (f["cdn_cluster_video"], f["video_origin_bucket"], f["video_bucket_suffix"]) == ("no1a", "tos-no1a-ve-0068-no", "no")
+    c = campos_forenses_comentario({"user": {"avatar_thumb": {"url_list": ["https://p/sin-bucket.jpg", "https://p/tos-useast2a-avt-1-euttp/z"]}}})
+    assert (c["autor_cluster_cdn"], c["autor_avatar_origin_bucket"]) == ("useast2a", "tos-useast2a-avt-1-euttp")
+    # sin TTY y sin CSV válido, el scraper de comentarios sale con error en vez de abrir un diálogo
+    spec = importlib.util.spec_from_file_location("sc2", "src/scrapers/2_tiktok_scraper_comentarios_api.py")
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    import sys
+    argv, sys.argv = sys.argv, ["scraper"]
+    try:
+        m.seleccionar_csv(); assert False
+    except SystemExit as e:
+        assert e.code == 1
+    finally:
+        sys.argv = argv
+
+
+def test_id_posible_en_rango():
+    from datetime import datetime
+    from tiktok_utils import id_posible_en_rango
+    def vid(y, m, d):
+        return str(int(datetime(y, m, d, 12).timestamp()) << 32)
+    ini, fin = datetime(2026, 11, 10), datetime(2026, 11, 14)
+    assert id_posible_en_rango(vid(2026, 11, 12), ini, fin)                 # dentro
+    assert id_posible_en_rango(vid(2026, 11, 3), ini, fin)                  # id anterior pero publicado después (programado): se revisa
+    assert not id_posible_en_rango(vid(2026, 10, 1), ini, fin)              # claramente antiguo
+    assert not id_posible_en_rango(vid(2026, 11, 20), ini, fin)             # un id posterior al fin nunca puede publicarse antes
+    assert id_posible_en_rango(vid(2026, 11, 15), ini, fin)                 # 1 día de margen por arriba
+    assert id_posible_en_rango("abc", ini, fin) and id_posible_en_rango(vid(2020, 1, 1), None, None)
+    assert not id_posible_en_rango(vid(2026, 10, 25), ini, fin, margen_dias=7)
