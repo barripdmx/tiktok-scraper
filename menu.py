@@ -224,6 +224,28 @@ ACTIONS = [
              "de creación, perfiles vacíos y actividad concentrada.",
     ),
     dict(
+        id="forense_pub", group="osint", icon="🔬", label="Informe forense: publicaciones",
+        script="src/analysis/informe_forense.py",
+        requires=[], produces=None, arg_key="videos", opens_report="forense",
+        help="Analiza el CSV de publicaciones con las columnas nuevas (fechas, moderación, IA, CDN, cohortes) "
+             "y señala lo anómalo. Usa el del proyecto o el que elijas.",
+        inputs=[
+            F("--archivo", "Otro archivo (opcional)", "Vacío: el CSV de vídeos del proyecto", kind="csv_file",
+              hint="Elige cualquier CSV de publicaciones, p. ej. una recaptura."),
+        ],
+    ),
+    dict(
+        id="forense_com", group="osint", icon="🔬", label="Informe forense: comentarios",
+        script="src/analysis/informe_forense.py",
+        requires=[], produces=None, arg_key="comments", opens_report="forense",
+        help="Analiza el CSV de comentarios con las columnas nuevas (fechas, cohortes, ráfagas, textos copiados, "
+             "avatares) y señala lo anómalo. Usa el del proyecto o el que elijas.",
+        inputs=[
+            F("--archivo", "Otro archivo (opcional)", "Vacío: el CSV de comentarios del proyecto", kind="csv_file",
+              hint="Elige cualquier CSV de comentarios, p. ej. una recaptura."),
+        ],
+    ),
+    dict(
         id="grafo", group="osint", icon="🕸️", label="Grafo de redes (GEXF)",
         script="src/visualization/crear_gexf.py",
         requires=["comments"], produces=None, arg_key="comments",
@@ -889,9 +911,9 @@ class MenuApp(ctk.CTk):
                 previo = store.get(spec["flag"], "")
                 if previo:
                     entry.insert(0, previo)
-                if spec["kind"] == "accounts_file":
+                if spec["kind"] in ("accounts_file", "csv_file"):
                     ctk.CTkButton(control, text="Examinar…", width=110, height=38, font=_f(11),
-                        command=lambda w=entry: self._pick_accounts_file(act, w)).pack(side="right", padx=(8, 0))
+                        command=lambda w=entry, k=spec["kind"]: self._pick_accounts_file(act, w, k)).pack(side="right", padx=(8, 0))
             if spec["hint"]:
                 ctk.CTkLabel(box, text=spec["hint"], font=_f(10), text_color=MUTED,
                              anchor="w", justify="left", wraplength=520
@@ -1007,10 +1029,14 @@ class MenuApp(ctk.CTk):
             self._account_file_cache = {key: read_accounts(path)}
         return self._account_file_cache[key]
 
-    def _pick_accounts_file(self, act, entry):
+    def _pick_accounts_file(self, act, entry, kind="accounts_file"):
         from tkinter import filedialog
-        filename = filedialog.askopenfilename(parent=self, title="Selecciona las cuentas de TikTok",
-            filetypes=[("Cuentas CSV/TXT", "*.csv *.txt"), ("CSV", "*.csv"), ("Texto", "*.txt")])
+        if kind == "csv_file":
+            filename = filedialog.askopenfilename(parent=self, title="Selecciona un CSV",
+                initialdir=self._project or None, filetypes=[("CSV", "*.csv")])
+        else:
+            filename = filedialog.askopenfilename(parent=self, title="Selecciona las cuentas de TikTok",
+                filetypes=[("Cuentas CSV/TXT", "*.csv *.txt"), ("CSV", "*.csv"), ("Texto", "*.txt")])
         if filename:
             entry.delete(0, "end")
             entry.insert(0, filename)
@@ -1350,7 +1376,7 @@ class MenuApp(ctk.CTk):
             self._render_chips()
 
         if act and act.get("opens_report") and rc == 0:
-            self._open_report()
+            self._open_report(act)
 
         self._refresh_rows()
         self._refresh_detail()
@@ -1379,8 +1405,18 @@ class MenuApp(ctk.CTk):
             self._stopping = False
             self._log_line(f"⚠ No se pudo detener el proceso: {exc}")
 
-    def _open_report(self):
+    def _open_report(self, act=None):
         """Localiza y abre el informe HTML recién generado."""
+        if act and act.get("opens_report") == "forense":
+            # El nombre depende del archivo elegido: se abre el _forense.html más reciente del proyecto.
+            carpeta = dir_informes(os.path.basename(os.path.normpath(self._project))) if self._project else ""
+            hay = sorted(Path(carpeta).glob("*_forense.html"), key=lambda p: p.stat().st_mtime) if carpeta and os.path.isdir(carpeta) else []
+            if hay:
+                ok, msg = open_path(str(hay[-1]))
+                self._log_line(("🌐 " if ok else "⚠ ") + msg)
+            else:
+                self._log_line("⚠ Informe generado; búscalo en la carpeta informes del proyecto.")
+            return
         videos = self._files.get("videos")
         if not videos:
             return
