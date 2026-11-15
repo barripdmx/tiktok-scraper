@@ -317,12 +317,40 @@ def _utc(ts: int) -> str:
 
 
 def cluster_cdn(url) -> str:
-    """Nodo físico del CDN de TikTok (no1a=UE, alisg=Singapur, maliva=Virginia…) a partir de una URL de vídeo/audio/subtítulo."""
+    """Identificador de almacenamiento (origin bucket) que TikTok pone en la ruta de una URL: `tos-<id>-…`.
+
+    Es una etiqueta interna de infraestructura de TikTok (no1a, maliva, useast2a, alisg…) SIN significado geográfico
+    documentado: no indica dónde está la persona ni el servidor que nos respondió. El host (p16-…, v16-…) no se lee.
+    Su señal útil es de cohorte (antigüedad/migración de la cuenta), no de ubicación.
+    """
     if not isinstance(url, str):
         return ""
     m = (re.search(r"tos-([a-z0-9]+)-", url) or re.search(r"/video/tos/([a-z0-9]+)/", url)
          or re.search(r"musically-([a-z0-9]+)-obj", url))  # avatares antiguos: /musically-maliva-obj/
     return m.group(1) if m else ""
+
+
+def bucket_cdn(url) -> tuple:
+    """(bucket completo, sufijo, legacy_musically) de la ruta de una URL de TikTok; ("", "", False) si no hay bucket.
+
+    bucket: `tos-no1a-avt-0068c001-no` o `musically-maliva-obj`. Sufijo: último tramo alfabético de un bucket `tos-`
+    de 5+ tramos (`no`, `euttp`, `sg`, `us`); vacío si el bucket acaba en un id (`tos-maliva-avt-0068`).
+    legacy_musically: avatar antiguo `musically-*-obj`, que cluster_cdn() colapsa con `tos-maliva-*`.
+    """
+    if not isinstance(url, str):
+        return "", "", False
+    m = re.search(r"/(tos-[a-z0-9]+-[a-z0-9-]+|musically-[a-z0-9]+-obj)(?=[/?~]|$)", url)
+    if not m:
+        return "", "", False
+    bucket = m.group(1)
+    partes = bucket.split("-")
+    sufijo = partes[-1] if bucket.startswith("tos-") and len(partes) >= 5 and partes[-1].isalpha() else ""
+    return bucket, sufijo, bucket.startswith("musically-")
+
+
+def _bucket_cols(prefijo: str, url) -> dict:
+    bucket, sufijo, _ = bucket_cdn(url)
+    return {f"{prefijo}_origin_bucket": bucket, f"{prefijo}_bucket_suffix": sufijo}
 
 
 def _bitrate_desde_url(url) -> int | str:
@@ -354,7 +382,7 @@ def _derivados_id(create_ts: int, video_id, autor_uid) -> dict:
 
 
 def campos_forenses(item: dict) -> dict:
-    """17 campos forenses del itemStruct de TikTok. Vacío ("") cuando el dato no existe (distinto de 0)."""
+    """21 campos forenses del itemStruct de TikTok. Vacío ("") cuando el dato no existe (distinto de 0)."""
     item = item or {}
     v = item.get("video") or {}
     music = item.get("music") or {}
@@ -388,6 +416,8 @@ def campos_forenses(item: dict) -> dict:
         "latencia_moderacion_seg": _latencia_moderacion((item.get("penaltyContext") or {}).get("conclu_calculated_time"), create_ts),
         "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
         "autor_fecha_creacion_cuenta": cuenta,
+        **_bucket_cols("video", ref),
+        **_bucket_cols("audio", music.get("playUrl")),
     }
 
 
@@ -413,11 +443,13 @@ def campos_forenses_desde_fila(row: dict) -> dict:
         "video_bitrate": _bitrate_desde_url(sub),
         "latencia_moderacion_seg": _latencia_moderacion(pen.get("conclu_calculated_time") if isinstance(pen, dict) else None, create_ts),
         "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
+        **_bucket_cols("video", sub),
+        **_bucket_cols("audio", row.get("audio_url")),
     }
 
 
 # ---------------------------------------------------------------------------
-# COMENTARIOS: 12 columnas históricas + 15 forenses (siempre al final)
+# COMENTARIOS: 12 columnas históricas + 18 forenses (siempre al final)
 # ---------------------------------------------------------------------------
 
 COLUMNAS_COMENTARIOS_BASE = [
@@ -429,6 +461,7 @@ COLUMNAS_COMENTARIOS_FORENSES = [
     "comment_ip_label", "comment_idioma", "autor_uid", "autor_secuid", "autor_fecha_creacion_cuenta",
     "autor_cluster_cdn", "total_respuestas_hilo", "like_del_creador", "comentario_fijado",
     "reply_to_comment_id", "reply_to_userid",
+    "autor_avatar_origin_bucket", "autor_avatar_bucket_suffix", "autor_avatar_legacy_musically",
 ]
 COLUMNAS_COMENTARIOS = COLUMNAS_COMENTARIOS_BASE + COLUMNAS_COMENTARIOS_FORENSES
 
@@ -453,7 +486,9 @@ def campos_forenses_comentario(c: dict) -> dict:
     user = c.get("user") if isinstance(c.get("user"), dict) else {}
     sf, seq = _id_snowflake(c.get("cid"))
     ct = _entero(c.get("create_time"))
-    avatar = next((k for u in ((user.get("avatar_thumb") or {}).get("url_list") or []) if (k := cluster_cdn(u))), "")
+    av_url = next((u for u in ((user.get("avatar_thumb") or {}).get("url_list") or []) if cluster_cdn(u)), "")
+    avatar = cluster_cdn(av_url)
+    av_bucket, av_sufijo, av_legacy = bucket_cdn(av_url)
     pos, pin = c.get("stick_position"), c.get("author_pin")
     sin_destino = ("", "0", "None")
     return {
@@ -472,6 +507,9 @@ def campos_forenses_comentario(c: dict) -> dict:
         "comentario_fijado": "" if pos is None and pin is None else int(_entero(pos) > 0 or bool(_bool(pin))),
         "reply_to_comment_id": "" if str(c.get("reply_to_reply_id")) in sin_destino else str(c["reply_to_reply_id"]),
         "reply_to_userid": "" if str(c.get("reply_to_userid")) in sin_destino else str(c["reply_to_userid"]),
+        "autor_avatar_origin_bucket": av_bucket,
+        "autor_avatar_bucket_suffix": av_sufijo,
+        "autor_avatar_legacy_musically": str(av_legacy) if av_bucket else "",
     }
 
 
@@ -489,7 +527,7 @@ def campos_forenses_comentario_desde_fila(row: dict) -> dict:
 
 
 def migrar_csv_comentarios(ruta: str) -> int:
-    """Pasa in situ un CSV de comentarios de 12 columnas a las 27, sin perder filas ni columnas. Devuelve las filas migradas.
+    """Pasa in situ un CSV de comentarios de 12 (o 27) columnas a las 30, sin perder filas ni columnas. Devuelve las filas migradas.
 
     0 si ya está al día. Lanza ValueError (sin tocar el fichero) si trae columnas ajenas que se perderían.
     """

@@ -29,6 +29,7 @@ data/{proyecto}/
 | `src/utils/` | `enriquecer_csv_fechas_creacion` (edad de cuentas), `tiktok_utils` |
 | `src/visualization/` | `generar_informe_html`, `grafica_multidimensional`, `graficas_patrones_cuentas`, `crear_gexf` |
 | `scripts/migrar_estructura.py` | reorganiza data/ y outputs/ (dry-run por defecto, `--aplicar`) |
+| `scripts/reparsear_buckets_cdn.py` | bucket/sufijo de avatar y vídeo desde los JSON crudos de Blocus (solo lectura) + tabla cruzada avatar vs vídeo |
 
 Tests: `pytest tests/` (deben pasar todos antes de subir).
 
@@ -57,3 +58,4 @@ Tests: `pytest tests/` (deben pasar todos antes de subir).
 - Números con punto como separador de miles (1.234.567)
 - Meses en español forzado (no depender del locale de Windows)
 - Al subir a GitHub: commits temáticos con mensaje explicando qué cambió y por qué
+- **`autor_cluster_cdn`, `cdn_cluster_*`**: etiqueta interna de almacenamiento (origin bucket `tos-<id>-…`) de TikTok, sin significado geográfico documentado: nunca presentarla como ubicación. Utilidad: efecto cohorte (antigüedad de la cuenta) y outliers intra-cohorte. Junto al clúster se guardan bucket completo y sufijo (`no`, `euttp`, `sg`, `us`); `autor_avatar_legacy_musically` marca avatares `musically-*-obj`.

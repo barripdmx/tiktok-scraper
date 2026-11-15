@@ -233,7 +233,7 @@ def append_csv(comentarios: List[Dict[str, Any]], ruta_csv: str) -> None:
     campos = COLUMNAS_COMENTARIOS
     file_exists = os.path.exists(ruta_csv)
     if file_exists:
-        migrar_csv_comentarios(ruta_csv)  # CSV antiguo de 12 columnas → 27, sin perder filas
+        migrar_csv_comentarios(ruta_csv)  # CSV antiguo de 12 o 27 columnas → 30, sin perder filas
         with open(ruta_csv, "rb+") as f:  # si no acaba en salto de línea, el nuevo registro se pegaría al último
             if f.seek(0, 2):
                 f.seek(-1, 2)

@@ -245,6 +245,8 @@ def test_campos_forenses():
     assert f["desfase_subida_seg"] == 3600 and f["inferencia_programado"] == 1
     assert f["autor_fecha_creacion_cuenta"] == "2020-09-13 12:26:40"
     assert (f["cdn_cluster_video"], f["cdn_cluster_audio"]) == ("alisg", "no1a")
+    assert (f["video_origin_bucket"], f["video_bucket_suffix"]) == ("tos-alisg-pve-0037", "")
+    assert (f["audio_origin_bucket"], f["audio_bucket_suffix"]) == ("tos-no1a-v-2370-no", "no")
     assert f["video_bitrate"] == 1125079 and f["video_vqscore"] == "48.9" and f["audio_loudness_lufs"] == -13.9
     assert f["video_reposts"] == "4" and f["poi_city_code"] == "2975088" and f["music_id"] == "77"
     assert f["latencia_moderacion_seg"] == -3500.0 and f["banner_institucional_key"] == "electionsTag_banner"
@@ -253,15 +255,16 @@ def test_campos_forenses():
     g = campos_forenses(item)
     assert g["video_bitrate"] == 1098 * 1024 and g["inferencia_programado"] == 0
     # los campos nuevos van al final de COLUMNAS_AMPLIADAS y un item vacío no inventa datos
-    assert list(campos_forenses({})) == COLUMNAS_AMPLIADAS[-17:] and all(v in ("", None) for v in campos_forenses({}).values())
-    assert list(metadatos_ampliados(item))[-17:] == COLUMNAS_AMPLIADAS[-17:]
-    # las 50 columnas ampliadas previas no se mueven (empiezan en pais_creacion, acaban en audio_url); las 17 nuevas, detrás
-    assert COLUMNAS_AMPLIADAS[0] == "pais_creacion" and COLUMNAS_AMPLIADAS[49] == "audio_url" and len(COLUMNAS_AMPLIADAS) == 67
-    assert COLUMNAS_AMPLIADAS[50] == "video_fecha_utc" and COLUMNAS_AMPLIADAS[-1] == "autor_fecha_creacion_cuenta"
+    assert list(campos_forenses({})) == COLUMNAS_AMPLIADAS[-21:] and all(v in ("", None) for v in campos_forenses({}).values())
+    assert list(metadatos_ampliados(item))[-21:] == COLUMNAS_AMPLIADAS[-21:]
+    # las 50 columnas ampliadas previas no se mueven (empiezan en pais_creacion, acaban en audio_url); las 21 nuevas, detrás
+    assert COLUMNAS_AMPLIADAS[0] == "pais_creacion" and COLUMNAS_AMPLIADAS[49] == "audio_url" and len(COLUMNAS_AMPLIADAS) == 71
+    assert COLUMNAS_AMPLIADAS[50] == "video_fecha_utc" and COLUMNAS_AMPLIADAS[66] == "autor_fecha_creacion_cuenta" and COLUMNAS_AMPLIADAS[67:] == ["video_origin_bucket", "video_bucket_suffix", "audio_origin_bucket", "audio_bucket_suffix"]
     # retro-enriquecimiento desde una fila de CSV (video_fecha es %d-%m-%Y local)
     r = campos_forenses_desde_fila({"video_id": str(vid), "video_fecha": "14-11-2023 12:00:00", "audio_url": "u/video/tos/no1a/x",
                                     "moderacion_json": "{no json", "aviso_json": '[{"key":"k"}]'})
     assert r["video_snowflake_utc"] == "2023-11-14 22:13:20" and r["cdn_cluster_audio"] == "no1a"
+    assert r["audio_origin_bucket"] == "" and r["video_origin_bucket"] == ""   # sin bucket `tos-X-…` en esas URLs de prueba
     assert r["banner_institucional_key"] == "k" and r["latencia_moderacion_seg"] == ""
     assert campos_forenses_desde_fila({})["desfase_subida_seg"] == ""
     assert campos_forenses_desde_fila({"aviso_json": float("nan")})["banner_institucional_key"] == ""
@@ -274,8 +277,8 @@ def test_campos_forenses_comentario(tmp_path):
     import csv
     from tiktok_utils import (campos_forenses_comentario, campos_forenses_comentario_desde_fila, migrar_csv_comentarios,
                               cluster_cdn, COLUMNAS_COMENTARIOS, COLUMNAS_COMENTARIOS_BASE, COLUMNAS_COMENTARIOS_FORENSES)
-    # 12 históricas intactas y primeras; 15 forenses detrás
-    assert COLUMNAS_COMENTARIOS_BASE[:5] == ["video_id", "video_url", "username", "comment_id", "fecha"] and len(COLUMNAS_COMENTARIOS) == 27
+    # 12 históricas intactas y primeras; 18 forenses detrás
+    assert COLUMNAS_COMENTARIOS_BASE[:5] == ["video_id", "video_url", "username", "comment_id", "fecha"] and len(COLUMNAS_COMENTARIOS) == 30
     assert COLUMNAS_COMENTARIOS[11] == "parent_comment_id" and COLUMNAS_COMENTARIOS[12] == "comment_timestamp_unix"
     cid = (1_700_000_000 << 32) | 99
     c = {"cid": str(cid), "create_time": 1_700_000_030, "comment_language": "es", "reply_comment_total": 0,
@@ -289,6 +292,10 @@ def test_campos_forenses_comentario(tmp_path):
     assert f["comment_timestamp_unix"] == 1_700_000_030 and f["comment_fecha_utc"] == "2023-11-14 22:13:50"
     assert f["comment_snowflake_utc"] == "2023-11-14 22:13:20" and f["comment_secuencia"] == 99
     assert f["autor_fecha_creacion_cuenta"] == "2020-09-13 12:26:40" and f["autor_cluster_cdn"] == "maliva"
+    # avatar antiguo musically-*-obj: el cluster lo colapsa con maliva, pero el flag legacy lo distingue
+    assert (f["autor_avatar_origin_bucket"], f["autor_avatar_bucket_suffix"], f["autor_avatar_legacy_musically"]) == ("musically-maliva-obj", "", "True")
+    h = campos_forenses_comentario({"user": {"avatar_thumb": {"url_list": ["https://p16/tos-no1a-avt-0068c001-no/y~t"]}}})
+    assert (h["autor_avatar_origin_bucket"], h["autor_avatar_bucket_suffix"], h["autor_avatar_legacy_musically"]) == ("tos-no1a-avt-0068c001-no", "no", "False")
     # los ceros reales se conservan; lo que falta es ""
     assert f["total_respuestas_hilo"] == 0 and f["like_del_creador"] == 0 and f["comentario_fijado"] == 0
     assert f["comment_ip_label"] == "" and f["comment_idioma"] == "es"
@@ -310,7 +317,7 @@ def test_campos_forenses_comentario(tmp_path):
     utc_0030 = 1_761_438_600  # 2025-10-26 00:30 UTC = 02:30 CEST (1ª vez); 01:30 UTC = 02:30 CET (2ª)
     for ts in (utc_0030, utc_0030 + 3600):
         assert campos_forenses_comentario_desde_fila({"comment_id": str((ts - 20) << 32), "fecha": "2025-10-26 02:30:00"})["comment_timestamp_unix"] == ts
-    # migración in situ 12→27: conserva filas y columnas, idempotente, y no pisa con columnas ajenas
+    # migración in situ 12→30: conserva filas y columnas, idempotente, y no pisa con columnas ajenas
     ruta = str(tmp_path / "c.csv")
     with open(ruta, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=COLUMNAS_COMENTARIOS_BASE); w.writeheader()
@@ -325,6 +332,42 @@ def test_campos_forenses_comentario(tmp_path):
         migrar_csv_comentarios(ajeno); assert False
     except ValueError:
         assert open(ajeno, encoding="utf-8-sig").read().startswith("comment_id,sentiment")
+
+
+def test_bucket_cdn():
+    from tiktok_utils import bucket_cdn
+    # tos-* con y sin sufijo (el sufijo es el último tramo alfabético de un bucket de 5+ tramos)
+    assert bucket_cdn("https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-avt-0068c001-no/ab~tplv.jpg?x=1") == ("tos-no1a-avt-0068c001-no", "no", False)
+    assert bucket_cdn("https://p16/tos-useast2a-avt-0068-euttp/ab") == ("tos-useast2a-avt-0068-euttp", "euttp", False)
+    assert bucket_cdn("https://p16/tos-alisg-ve-37c815-sg/ab") == ("tos-alisg-ve-37c815-sg", "sg", False)
+    assert bucket_cdn("https://p16/tos-maliva-avt-0068/ab") == ("tos-maliva-avt-0068", "", False)
+    assert bucket_cdn("https://p16/tos-alisg-pve-0037c001/ab")[1] == ""
+    # /video/tos/<idc>/ no es el bucket: se queda con el tos-… posterior
+    assert bucket_cdn("https://v45.tiktokcdn-eu.com/h/t/video/tos/no1a/tos-no1a-v-2370-no/ab/?bt=1") == ("tos-no1a-v-2370-no", "no", False)
+    assert bucket_cdn("https://v/video/tos/alisg/tos-alisg-ve-37c815-sg") == ("tos-alisg-ve-37c815-sg", "sg", False)   # bucket al final de la URL
+    # avatar antiguo: legacy, sin sufijo
+    assert bucket_cdn("https://p16/musically-maliva-obj/ab.jpeg") == ("musically-maliva-obj", "", True)
+    # nulos y malformados
+    for malo in (None, "", 5, float("nan"), "https://p16/avatar.jpg", "tos-", "https://p16/tos-/x", "/tos-no1a/x"):
+        assert bucket_cdn(malo) == ("", "", False), malo
+
+
+def test_reparsear_buckets_cdn(tmp_path):
+    import csv, json, subprocess, sys
+    uid = (1_780_000_000 << 32) | 1   # cuenta de 2026
+    item = {"id": "7", "author": {"id": str(uid), "avatarThumb": "https://p16/musically-maliva-obj/a"},
+            "video": {"PlayAddrStruct": {"UrlList": ["https://v16-webapp-prime.tiktok.com/video/tos/no1a/tos-no1a-ve-0068-no/x"]}}}
+    (tmp_path / "7.json").write_text(json.dumps({"item": item}), encoding="utf-8")
+    (tmp_path / "roto.json").write_text("{no json", encoding="utf-8")
+    (tmp_path / "vacio.json").write_text(json.dumps({"item": {}}), encoding="utf-8")
+    salida = tmp_path / "o.csv"
+    r = subprocess.run([sys.executable, "-m", "scripts.reparsear_buckets_cdn", str(tmp_path), "-o", str(salida)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
+    fila = next(csv.DictReader(open(salida, encoding="utf-8-sig", newline="")))
+    assert (fila["avatar_origin_bucket"], fila["avatar_legacy_musically"], fila["autor_cohorte_anio"]) == ("musically-maliva-obj", "True", "2026")
+    assert (fila["video_origin_bucket"], fila["video_bucket_suffix"]) == ("tos-no1a-ve-0068-no", "no") and "edge_host" not in fila
+    assert "v16-webapp-prime.tiktok.com" in r.stdout and "Avatar y vídeo en distinto clúster: 1 de 1" in r.stdout
 
 
 def test_comentarios_casos_limite(tmp_path):
@@ -343,7 +386,7 @@ def test_comentarios_casos_limite(tmp_path):
         migrar_csv_comentarios(str(mal)); assert False
     except ValueError:
         assert mal.read_bytes() == antes
-    # append_csv sobre un CSV de 27 columnas sin salto de línea final: no pega registros
+    # append_csv sobre un CSV de 30 columnas sin salto de línea final: no pega registros
     spec = importlib.util.spec_from_file_location("sc", "src/scrapers/2_tiktok_scraper_comentarios_api.py")
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     ruta = str(tmp_path / "c.csv")

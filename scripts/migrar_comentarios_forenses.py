@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Pasa los CSV de comentarios antiguos (12 columnas) a las 27 con los campos forenses.
+"""Pasa los CSV de comentarios antiguos (12 columnas) a las 30 con los campos forenses.
 
 Solo se calculan los 4 temporales (comment_timestamp_unix, comment_fecha_utc, comment_snowflake_utc,
 comment_secuencia); el resto queda vacío hasta recapturar. Dry-run por defecto: `--aplicar` escribe.
