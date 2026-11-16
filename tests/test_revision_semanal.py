@@ -59,3 +59,11 @@ def test_balance_sin_etiquetadas():
     inf["crecimiento"] = [("a", 100, 110), ("b", 1000, 2000)]
     t = texto_informe(inf, "d", 2, {"b"})
     assert "1.100 → 2.110" in t and "100 → 110 (+10,0 %)" in t and "1 cuentas etiquetadas" in t
+
+
+def test_ajenas_se_filtran_del_informe():
+    inf = informe_vacio()
+    inf["crecimiento"] = [("a", 100, 110), ("x", 200, 400)]
+    inf["bajas"] = ["x"]
+    t = texto_informe(inf, "d", 2, (), {"x"})
+    assert "100 → 110" in t and "@x" not in t and "1 ajenas" in t

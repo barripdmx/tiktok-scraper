@@ -103,12 +103,16 @@ def coma(p):
     return ("0,0" if p == 0 else f"{p:+.1f}").replace(".", ",")
 
 
-def texto_informe(informe, ahora, n_censo, etiquetadas=()):
+def texto_informe(informe, ahora, n_censo, etiquetadas=(), ajenas=()):
+    """`ajenas` (etiqueta «ajena…») se filtran por completo; `etiquetadas` solo se restan en una segunda línea del balance."""
+    informe = {**informe, "crecimiento": [x for x in informe["crecimiento"] if x[0] not in ajenas],
+               "enlaces": [x for x in informe["enlaces"] if x[0] not in ajenas],
+               **{k: [u for u in informe[k] if u not in ajenas] for k in ("bajas", "reaparecidas")}}
     suben = [x for x in informe["crecimiento"] if x[2] > x[1]]
     bajan = [x for x in informe["crecimiento"] if x[2] < x[1]]
     t0 = sum(x[1] for x in informe["crecimiento"])
     t1 = sum(x[2] for x in informe["crecimiento"])
-    lineas = [f"# Revisión Blocus — {ahora}", "", f"Censo: {miles(n_censo)} cuentas. Análisis: @barripdmx.", ""]
+    lineas = [f"# Revisión Blocus — {ahora}", "", f"Censo: {miles(n_censo)} cuentas ({len(ajenas)} ajenas al movimiento, filtradas). Análisis: @barripdmx.", ""]
     if t0:
         lineas.append(f"Conjunto (cuentas con ≥{MIN_BASE} seguidores en la pasada anterior): {miles(t0)} → {miles(t1)} "
                       f"({coma(pct(t0, t1))} %); suben {len(suben)}, bajan {len(bajan)}.")
@@ -243,7 +247,8 @@ async def main():
     carpeta = DIR / "capturas" / datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     carpeta.mkdir(parents=True)
     (carpeta / "busqueda_cruda.json").write_text(json.dumps(crudo, ensure_ascii=False), encoding="utf-8")
-    (carpeta / "informe.md").write_text(texto_informe(informe, ahora, len(censo), {c["usuario"] for c in censo.values() if c.get("etiqueta")}), encoding="utf-8")
+    (carpeta / "informe.md").write_text(texto_informe(informe, ahora, len(censo), {c["usuario"] for c in censo.values() if c.get("etiqueta") and not c["etiqueta"].startswith("ajena")},
+                                                          {c["usuario"] for c in censo.values() if c.get("etiqueta", "").startswith("ajena")}), encoding="utf-8")
     CENSO.write_text(json.dumps(censo, ensure_ascii=False, indent=1), encoding="utf-8")
     print((carpeta / "informe.md").read_text(encoding="utf-8"))
 
