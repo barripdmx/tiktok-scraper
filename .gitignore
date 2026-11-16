@@ -71,3 +71,8 @@ docs/taller_tiktok_presentacion_guion.md
 # ── Scripts de construcción internos ─────────────────────────────────────────
 scripts/build_taller_presentations.py
 scripts/build_taller_presentations_v2.py
+
+# Ajeno al toolkit (tarjetas de adviento y PDFs de otra sesión)
+crear_adviento.py
+/output/
+/tmp/
