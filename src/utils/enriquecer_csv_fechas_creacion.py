@@ -9,12 +9,15 @@ auxiliar incremental y permite reanudar en ejecuciones posteriores.
 
 import os
 import time
+import random
 from typing import Optional
 
 import pandas as pd
 import requests
 
-from extraer_fechas_creacion_cuentas import fetch_account_info, normalize_username
+from extraer_fechas_creacion_cuentas import (
+    fetch_account_info, normalize_username, RateLimited,
+)
 
 
 def build_output_paths(source_csv: str):
@@ -59,7 +62,11 @@ def load_existing_lookup(lookup_csv: str) -> pd.DataFrame:
 
 def save_lookup(lookup_df: pd.DataFrame, lookup_csv: str) -> None:
     lookup_df = lookup_df.drop_duplicates(subset=["username_consulta"], keep="last")
-    lookup_df.to_csv(lookup_csv, index=False, encoding="utf-8-sig")
+    # Escritura atómica: un crash a mitad de to_csv no debe corromper el lookup
+    # incremental (es lo que permite reanudar sin re-consultar miles de cuentas).
+    tmp = lookup_csv + ".tmp"
+    lookup_df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    os.replace(tmp, lookup_csv)
 
 
 def merge_lookup_into_source(
@@ -71,13 +78,15 @@ def merge_lookup_into_source(
     df = safe_read_csv(source_csv)
     df["_handle_norm_tmp"] = df[handle_col].astype(str).map(normalize_username)
 
+    # SEC-03: 'sec_uid' y 'bio' (identificadores/datos personales de los
+    # comentaristas) se excluyen del CSV enriquecido, que es el artefacto que
+    # más se comparte. Siguen en el lookup interno para reanudar consultas.
     merge_cols = [
         "username_consulta",
         "username_real",
         "fecha_creacion_cuenta",
         "fuente_fecha_creacion",
         "user_id",
-        "sec_uid",
         "verified",
         "followers",
         "following",
@@ -85,22 +94,32 @@ def merge_lookup_into_source(
         "video_count",
         "error",
     ]
-    lookup_merge = lookup_df[merge_cols].copy()
+    key_col = "username_consulta"
+    if key_col not in lookup_df.columns:
+        raise ValueError(f"El lookup no contiene la columna clave '{key_col}'")
 
-    # Renombrar columnas del lookup que colisionan con columnas ya existentes
-    # en el CSV fuente, para evitar que pandas las renombre a _x / _y.
-    # - "likes" en el lookup = likes totales de la cuenta (≠ likes del comentario)
-    # - "user_id" puede existir en algunos CSVs de comentarios
-    collision_renames = {}
-    for col in ["likes", "user_id"]:
-        if col in lookup_merge.columns and col in df.columns:
-            collision_renames[col] = f"{col}_cuenta"
+    # Solo las columnas del lookup que realmente existen: lookups generados por
+    # versiones antiguas pueden no tener 'error', 'sec_uid', etc. y seleccionar
+    # una columna ausente con lookup_df[merge_cols] lanzaría KeyError.
+    cols_presentes = [c for c in merge_cols if c in lookup_df.columns]
+    lookup_merge = lookup_df[cols_presentes].copy()
+
+    # Renombrar TODA columna del lookup que colisione con una columna ya
+    # existente en el CSV fuente (salvo la clave del merge), para evitar que
+    # pandas genere sufijos _x / _y que los consumidores aguas abajo no
+    # encuentran (gráficas de patrones quedarían vacías sin error).
+    # - "likes" del lookup = likes totales de la cuenta (≠ likes del comentario)
+    # - "user_id", "followers", "verified"… pueden venir ya en algunos CSVs
+    collision_renames = {
+        c: f"{c}_cuenta"
+        for c in lookup_merge.columns
+        if c != key_col and c in df.columns
+    }
     if collision_renames:
         lookup_merge = lookup_merge.rename(columns=collision_renames)
 
     # Garantizar un único registro por handle antes del merge (evita duplicar
     # filas del source si el lookup tuviera entradas repetidas).
-    key_col = "username_consulta"
     lookup_merge = lookup_merge.drop_duplicates(subset=[key_col], keep="last")
 
     out = df.merge(
@@ -115,6 +134,26 @@ def merge_lookup_into_source(
     return enriched_csv
 
 
+def _cuentas_resueltas(lookup_df: pd.DataFrame) -> set:
+    """Handles del lookup que NO hay que reintentar.
+
+    Una cuenta está "resuelta" si no tuvo error, o si el error es permanente
+    (cuenta inexistente/eliminada). Los errores transitorios (timeout, 429,
+    captcha, red) quedan fuera para reintentarse en la siguiente ejecución.
+    """
+    if lookup_df.empty or "username_consulta" not in lookup_df.columns:
+        return set()
+    if "error" in lookup_df.columns:
+        err = lookup_df["error"].fillna("").astype(str)
+    else:
+        err = pd.Series([""] * len(lookup_df), index=lookup_df.index)
+    permanente = err.str.contains("404|not found|no encontr", case=False,
+                                  regex=True, na=False)
+    resuelto = (err.str.strip() == "") | permanente
+    return set(lookup_df.loc[resuelto, "username_consulta"]
+               .astype(str).map(normalize_username))
+
+
 def process_handles(
     source_csv: str,
     handle_col: str,
@@ -123,17 +162,29 @@ def process_handles(
 ):
     lookup_csv, enriched_csv = build_output_paths(source_csv)
 
+    # Evitar re-enriquecer un CSV que ya fue enriquecido: produciría columnas
+    # obsoletas/duplicadas y los consumidores leerían las viejas. Lo detectamos
+    # leyendo solo la cabecera, antes de gastar una tanda de peticiones.
+    try:
+        src_cols = list(safe_read_csv(source_csv, nrows=0).columns)
+    except Exception:
+        src_cols = []
+    if "fecha_creacion_cuenta" in src_cols:
+        print("⚠️  El CSV fuente ya contiene 'fecha_creacion_cuenta' — parece ya "
+              "enriquecido.\n   Usa el CSV de comentarios original, no el enriquecido.")
+        return
+
     unique_handles = extract_unique_handles(source_csv, handle_col)
     lookup_df = load_existing_lookup(lookup_csv)
-    done = set()
-    if not lookup_df.empty:
-        done = set(lookup_df["username_consulta"].astype(str).map(normalize_username))
+    done = _cuentas_resueltas(lookup_df)
 
-    pending = [h for h in unique_handles.tolist() if h not in done]
+    pending_all = [h for h in unique_handles.tolist() if h not in done]
     total_unique = len(unique_handles)
 
     if batch_limit and batch_limit > 0:
-        pending = pending[:batch_limit]
+        pending = pending_all[:batch_limit]
+    else:
+        pending = pending_all
 
     print(f"CSV origen:           {source_csv}")
     print(f"Columna cuentas:      {handle_col}")
@@ -151,50 +202,79 @@ def process_handles(
 
     rows = lookup_df.to_dict("records") if not lookup_df.empty else []
     save_every = 100
+    bloqueos_consecutivos = 0
 
     with requests.Session() as session:
         for i, handle in enumerate(pending, 1):
             global_idx = len(done) + i
             print(f"\n[{i}/{len(pending)} | total {global_idx}/{total_unique}] @{handle}")
-            try:
-                row = fetch_account_info(session, handle)
-                rows.append(row)
-                print(
-                    f"   ✅ {row['fecha_creacion_cuenta'] or 'N/D'} "
-                    f"| fuente: {row['fuente_fecha_creacion'] or 'sin fuente'}"
-                )
-            except Exception as e:
-                rows.append({
-                    "username_consulta": handle,
-                    "username_real": "",
-                    "nickname": "",
-                    "verified": "",
-                    "user_id": "",
-                    "sec_uid": "",
-                    "fecha_creacion_cuenta": "",
-                    "fuente_fecha_creacion": "",
-                    "followers": 0,
-                    "following": 0,
-                    "likes": 0,
-                    "video_count": 0,
-                    "bio": "",
-                    "profile_url": f"https://www.tiktok.com/@{handle}",
-                    "error": str(e).strip() or type(e).__name__,
-                })
-                print(f"   ⚠️ {str(e)[:120]}")
+
+            row = None
+            for intento in range(3):
+                try:
+                    row = fetch_account_info(session, handle)
+                    bloqueos_consecutivos = 0
+                    break
+                except RateLimited as e:
+                    # Bloqueo global de TikTok → backoff exponencial y reintento.
+                    bloqueos_consecutivos += 1
+                    espera = min(30 * (2 ** intento), 240)
+                    print(f"   ⏳ Bloqueo de TikTok ({str(e)[:50]}); espera {espera}s "
+                          f"(intento {intento+1}/3)")
+                    time.sleep(espera)
+                except Exception as e:
+                    # Error por cuenta (no bloqueo global): registrar y continuar.
+                    row = {
+                        "username_consulta": handle, "username_real": "", "nickname": "",
+                        "verified": "", "user_id": "", "sec_uid": "",
+                        "fecha_creacion_cuenta": "", "fuente_fecha_creacion": "",
+                        "followers": 0, "following": 0, "likes": 0, "video_count": 0,
+                        "bio": "", "profile_url": f"https://www.tiktok.com/@{handle}",
+                        "error": str(e).strip() or type(e).__name__,
+                    }
+                    print(f"   ⚠️ {str(e)[:120]}")
+                    break
+
+            if row is None:
+                # Agotados los reintentos por bloqueo: NO se cachea como error
+                # (quedaría pendiente igualmente); se reintentará en otra tanda.
+                print("   ↩ Sin resolver por bloqueo persistente; se reintentará luego.")
+                if bloqueos_consecutivos >= 5:
+                    print("   ⛔ Demasiados bloqueos consecutivos de TikTok; "
+                          "abortando esta tanda y guardando lo conseguido.")
+                    break
+                continue
+
+            rows.append(row)
+            if not row.get("error"):
+                print(f"   ✅ {row['fecha_creacion_cuenta'] or 'N/D'} "
+                      f"| fuente: {row['fuente_fecha_creacion'] or 'sin fuente'}")
 
             if i % save_every == 0:
-                tmp_lookup = pd.DataFrame(rows)
-                save_lookup(tmp_lookup, lookup_csv)
+                save_lookup(pd.DataFrame(rows), lookup_csv)
                 print("   💾 Lookup parcial guardado")
 
-            time.sleep(max(0.0, pause_seconds))
+            # Pausa con jitter para evitar un patrón de peticiones regular.
+            time.sleep(max(0.0, pause_seconds) + random.uniform(0.0, 0.3))
 
-    final_lookup = pd.DataFrame(rows)
-    save_lookup(final_lookup, lookup_csv)
+    save_lookup(pd.DataFrame(rows), lookup_csv)
     print("\n💾 Lookup final guardado")
 
+    # Recargar el lookup deduplicado para contar cuántas cuentas quedan sin
+    # resolver (transitorias, abortadas por bloqueo, o no incluidas por batch_limit).
+    final_lookup = load_existing_lookup(lookup_csv)
+    resueltas = _cuentas_resueltas(final_lookup)
+    sin_resolver = [h for h in unique_handles.tolist() if h not in resueltas]
+
     merge_lookup_into_source(source_csv, handle_col, final_lookup, enriched_csv)
+
+    if sin_resolver:
+        print("\n" + "!" * 64)
+        print(f"⚠️  ENRIQUECIMIENTO PARCIAL: quedan {len(sin_resolver):,} de "
+              f"{total_unique:,} cuentas sin fecha de creación.")
+        print("    El CSV enriquecido está INCOMPLETO. Vuelve a ejecutar esta")
+        print("    opción para continuar (se reanuda donde lo dejó).")
+        print("!" * 64)
     print(f"✅ CSV enriquecido guardado en: {enriched_csv}")
 
 

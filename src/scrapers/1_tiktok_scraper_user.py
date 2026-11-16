@@ -22,12 +22,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'u
 
 from tiktok_utils import (
     get_date_from_id, get_date_from_video_id,
-    is_in_date_range, is_likely_in_date_range,
+    is_in_date_range, is_likely_in_date_range, id_posible_en_rango, cli_value,
     extract_video_id_from_url, is_valid_video_url, parse_count,
     human_scroll, accept_cookies_banner, handle_verification,
     load_cookies, save_cookies, ensure_context as _ensure_context_base,
     resolve_cookies_path,
     ask_or_arg,
+    metadatos_ampliados, COLUMNAS_AMPLIADAS,
+    leer_filas_previas, fusionar_filas_video, escribir_atomico,
 )
 
 try:
@@ -182,6 +184,15 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
             await asyncio.sleep(1)
     except:
         pass
+
+    # La cuadrícula puede cargarse varios segundos después de los datos del perfil.
+    # Esperar a sus enlaces evita terminar los scrolls antes de que aparezcan.
+    try:
+        await page.wait_for_selector(
+            f'a[href*="/@{username}/video/" i]', timeout=25000
+        )
+    except Exception:
+        print("⚠️ La cuadrícula no cargó enlaces de vídeo dentro del tiempo de espera")
     
     # Recolectar URLs de videos
     video_urls = set()
@@ -193,7 +204,7 @@ async def collect_user_videos(context, username: str, max_scroll: int = MAX_SCRO
     for i in range(max_scroll):
         # Buscar enlaces a videos
         selectors = [
-            f'a[href*="/@{username}/video/"]',
+            f'a[href*="/@{username}/video/" i]',
             'div[data-e2e="user-post-item"] a',
             'div[class*="DivItemContainer"] a[href*="/video/"]',
             'a[href*="/video/"]',
@@ -351,6 +362,7 @@ async def extract_metadata(context, url, username):
             "cover_url": video_obj.get("cover", ""),
             "hashtags": "|".join(hashtags),
             "mentions": "|".join(mentions),
+            **metadatos_ampliados(item),
             "_create_dt": create_time,
         }
     finally:
@@ -363,27 +375,31 @@ def save_results(username, rows, user_info):
     json_path = os.path.join(proj_dir, f"user_{username}_videos.json")
     csv_path = os.path.join(proj_dir, f"user_{username}_videos.csv")
     
+    # Una recaptura SUMA a lo ya capturado (JSON y CSV) en vez de sustituirlo: nunca se pierden vídeos ni datos.
+    previas = leer_filas_previas(json_path, csv_path)  # RuntimeError si hay histórico ilegible
+    rows = fusionar_filas_video(previas, rows)
+
     output = {
         "user_info": user_info,
         "videos_count": len(rows),
         "scraped_at": datetime.now().isoformat(),
         "videos": rows
     }
-    
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2, default=str)
-    
+    escribir_atomico(json_path, lambda f: json.dump(output, f, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
     fields = ["video_id", "video_url", "video_desc", "video_fecha", "video_duracion_seg",
               "video_width", "video_height", "video_ratio", "video_likes", "video_vistas",
               "video_compartidos", "video_comentarios", "video_guardados", "username",
               "author_nickname", "author_verified", "music_id", "music_title", "music_author",
-              "cover_url", "hashtags", "mentions"]
-    
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+              "cover_url", "hashtags", "mentions"] + COLUMNAS_AMPLIADAS
+    fields = list(dict.fromkeys(fields))  # music_id está en las dos listas: una sola columna
+
+    def _csv(f):
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore', quoting=csv.QUOTE_NONNUMERIC)
         w.writeheader()
         w.writerows(rows)
-    
+    escribir_atomico(csv_path, _csv, newline="", encoding="utf-8-sig")
+
     print(f"\n📁 JSON: {json_path}")
     print(f"📄 CSV:  {csv_path}")
 
@@ -433,19 +449,22 @@ async def main():
 
             print(f"\n📊 Videos encontrados: {len(video_urls)}")
 
-            # Pre-filtrar por fecha (EXACTO - calculado desde el ID)
+            # Pre-filtrar por fecha (aproximado, desde el ID; el filtro exacto es sobre createTime)
             if start_dt or end_dt:
                 filtered = []
                 skipped = 0
 
+                # La fecha del id es la de creación: un borrador/programado se publica después. Solo se descarta
+                # lo claramente fuera; el filtro exacto va luego sobre createTime (la fecha real de publicación).
+                margen = int(v) if (v := cli_value("--margen-dias")) and v.isdigit() else 14
                 for url in video_urls:
                     vid = extract_video_id_from_url(url)
-                    if is_in_date_range(vid, start_dt, end_dt):
+                    if id_posible_en_rango(vid, start_dt, end_dt, margen):
                         filtered.append(url)
                     else:
                         skipped += 1
 
-                print(f"🗓️ Filtrado por fecha (exacto desde ID): {len(filtered)} en rango, {skipped} descartados")
+                print(f"🗓️ Filtrado previo por fecha del ID (margen {margen} días): {len(filtered)} a revisar, {skipped} descartados")
                 video_urls = filtered
 
             if not video_urls:

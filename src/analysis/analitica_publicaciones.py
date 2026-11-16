@@ -19,7 +19,7 @@ except Exception:
 
 # --- CONFIGURACIÓN ---
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUTPUT_BASE     = os.path.join(BASE_DIR, "outputs")
+OUTPUT_BASE     = os.path.join(BASE_DIR, "data")
 OUTPUT_FOLDER   = OUTPUT_BASE
 LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
 TWITTER_DPI    = 100   # 16×9 inches × 100dpi = 1600×900px
@@ -682,7 +682,7 @@ def main():
     create_output_folder(file_id)
 
     try:
-        df = pd.read_csv(csv_file)
+        df = pd.read_csv(csv_file, encoding="utf-8-sig")
         print(f"Cargados {len(df):,} registros.")
     except Exception as e:
         print(f"Error: {e}"); return
@@ -693,9 +693,12 @@ def main():
         "Color emoji", f"Color para emoticonos (Enter = mismo que principal):") or args.color_texto)
 
     # Nubes
-    graf_nube_palabras(df, file_id, color_text)
-    graf_nube_hashtags(df, file_id, color_text)
-    graf_nube_emoticonos(df, file_id, color_emoji)
+    try:
+        graf_nube_palabras(df, file_id, color_text)
+        graf_nube_hashtags(df, file_id, color_text)
+        graf_nube_emoticonos(df, file_id, color_emoji)
+    except Exception as e:
+        print(f"-> Error en nubes: {e}")
 
     # Reporte TXT
     metrics = ['video_likes', 'video_vistas', 'video_compartidos', 'video_comentarios', 'video_guardados']

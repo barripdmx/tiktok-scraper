@@ -90,7 +90,7 @@ Si el CSV de sentimiento existe, se detecta automáticamente.
 from src.visualization.grafica_multidimensional import generar_todas_graficas
 import pandas as pd
 
-df_sentimiento = pd.read_csv("data/usuario_con_sentimiento_mistral.csv")
+df_sentimiento = pd.read_csv("data/usuario_con_sentimiento_groq.csv")
 graficas = generar_todas_graficas(df_sentimiento)
 
 # graficas es un dict con base64 PNGs embebibles

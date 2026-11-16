@@ -1029,7 +1029,7 @@ def main():
         root.attributes("-topmost", True)
 
         csv_path = filedialog.askopenfilename(
-            title="Selecciona el CSV con análisis de sentimiento (Mistral o Groq)",
+            title="Selecciona el CSV con análisis de sentimiento (Groq)",
             filetypes=[
                 ("CSV con sentimiento", "*con_sentimiento*.csv"),
                 ("Todos los CSV", "*.csv"),
@@ -1044,7 +1044,7 @@ def main():
     # ── Cargar datos ─────────────────────────────────────────────────────────
     print(f"\n  Cargando: {os.path.basename(csv_path)}")
     try:
-        df = pd.read_csv(csv_path, low_memory=False)
+        df = pd.read_csv(csv_path, low_memory=False, encoding="utf-8-sig")
     except Exception as e:
         print(f"  ❌ Error al leer CSV: {e}")
         return
@@ -1061,7 +1061,7 @@ def main():
             "CSV no válido",
             "Este CSV no contiene columnas de análisis multidimensional.\n\n"
             "Necesita columnas como: bias, archetype, pain_point, intent, sarcasm.\n\n"
-            "Ejecuta primero el análisis de sentimiento con Mistral o Groq."
+            "Ejecuta primero el análisis de sentimiento con Groq."
         )
         root2.destroy()
         return
@@ -1132,30 +1132,37 @@ def main():
         print(f"  Omitidas  : {', '.join(omitidas)}")
     print(f"  Carpeta   : {carpeta_salida}\n")
 
+    # Los diálogos bloquean esperando un clic que nunca llega si se ejecuta en
+    # segundo plano (menú, tarea programada...); igual que los input() del
+    # resto del proyecto, solo se muestran con una sesión interactiva real.
     if generadas:
-        root3 = tk.Tk()
-        root3.withdraw()
-        abrir = messagebox.askyesno(
-            "✅ Gráficas generadas",
-            f"Se han generado {len(generadas)} gráfica(s) en:\n\n{carpeta_salida}\n\n"
-            "¿Abrir la carpeta?"
-        )
-        root3.destroy()
-        if abrir:
-            if sys.platform == "win32":
-                os.startfile(carpeta_salida)
-            else:
-                import subprocess
-                subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", carpeta_salida])
+        if sys.stdin.isatty():
+            root3 = tk.Tk()
+            root3.withdraw()
+            abrir = messagebox.askyesno(
+                "✅ Gráficas generadas",
+                f"Se han generado {len(generadas)} gráfica(s) en:\n\n{carpeta_salida}\n\n"
+                "¿Abrir la carpeta?"
+            )
+            root3.destroy()
+            if abrir:
+                if sys.platform == "win32":
+                    os.startfile(carpeta_salida)
+                else:
+                    import subprocess
+                    subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", carpeta_salida])
     else:
-        root4 = tk.Tk()
-        root4.withdraw()
-        messagebox.showwarning(
-            "Sin gráficas",
-            "No se generó ninguna gráfica.\n"
-            "Comprueba que el CSV tiene columnas: bias, archetype, pain_point, sentiment."
-        )
-        root4.destroy()
+        print("  ⚠️ Sin gráficas: comprueba que el CSV tiene columnas "
+              "bias, archetype, pain_point, sentiment.")
+        if sys.stdin.isatty():
+            root4 = tk.Tk()
+            root4.withdraw()
+            messagebox.showwarning(
+                "Sin gráficas",
+                "No se generó ninguna gráfica.\n"
+                "Comprueba que el CSV tiene columnas: bias, archetype, pain_point, sentiment."
+            )
+            root4.destroy()
 
 
 if __name__ == "__main__":

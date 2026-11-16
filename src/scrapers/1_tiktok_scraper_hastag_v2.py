@@ -39,6 +39,7 @@ from tiktok_utils import (
     extract_video_id_from_url, extract_username_from_url, is_valid_video_url, parse_count,
     human_scroll, accept_cookies_banner, handle_verification, detect_end_of_results,
     load_cookies, save_cookies, ensure_context as _ensure_context_base, collect_video_urls as _collect_video_urls_base,
+    resolve_cookies_path,
 )
 
 # ------------------- CONFIG -------------------
@@ -46,7 +47,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
+COOKIES_PATH = resolve_cookies_path(BASE_DIR)  # SEC-01: secrets/, no data/
 PROFILE_DIR = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 
 HEADLESS = False

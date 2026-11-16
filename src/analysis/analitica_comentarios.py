@@ -13,13 +13,12 @@ import emoji
 from matplotlib.colors import to_rgb
 import random
 from collections import Counter
-from pysentimiento import create_analyzer
 
 # --- CONFIGURACIÓN ---
 # Rutas relativas a la raíz del proyecto (dos niveles arriba de src/analysis)
 import sys as _sys
 BASE_DIR        = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUTPUT_BASE     = os.path.join(BASE_DIR, "outputs")
+OUTPUT_BASE     = os.path.join(BASE_DIR, "data")
 OUTPUT_FOLDER   = OUTPUT_BASE
 POLARIDAD_FOLDER = OUTPUT_BASE
 LOGO_TIKTOK     = os.path.join(BASE_DIR, "assets", "tiktok_logo.jpg")
@@ -482,35 +481,31 @@ def generar_analisis_temporal(df, file_id, bar_color):
     except Exception as e:
         print(f"-> Error generando gráficas temporales: {e}")
 
-def analizar_sentimiento_ia(df):
-    """Clasifica el sentimiento con RoBERTa (pysentimiento) entrenado en español."""
-    print("\n--- 4. Analizando Sentimiento con IA (RoBERTa en español) ---")
-    print("   Cargando modelo... (solo la primera vez tarda más)")
-
-    analyzer = create_analyzer(task="sentiment", lang="es")
-
-    textos = df['texto'].fillna("").astype(str).tolist()
-    total = len(textos)
-    print(f"   Procesando {total:,} comentarios directos en lotes...")
-
-    BATCH = 64
-    etiquetas = []
-    for i in range(0, total, BATCH):
-        lote = textos[i:i + BATCH]
-        resultados = analyzer.predict(lote)
-        etiquetas.extend(r.output for r in resultados)
-        if (i // BATCH) % 20 == 0:
-            print(f"   {min(i + BATCH, total):,} / {total:,}", end="\r")
+def _cargar_sentimiento_precalculado(csv_file, df):
+    """Reutiliza el CSV que ya generó el botón 'Sentimiento IA' (Groq o RoBERTa)
+    en vez de reclasificar aquí con un modelo aparte: evita duplicar el cómputo
+    (lento, sin checkpoint) y que ambos botones puedan dar sentimientos
+    distintos para el mismo comentario. Devuelve None si aún no se ha corrido."""
+    base, _ext = os.path.splitext(csv_file)
+    candidatos = [f"{base}_con_sentimiento_{p}.csv" for p in ("groq", "roberta")]
+    ruta = next((c for c in candidatos if os.path.exists(c)), None)
+    if not ruta or "comment_id" not in df.columns:
+        return None
+    try:
+        df_s = pd.read_csv(ruta, encoding="utf-8-sig")
+    except Exception:
+        return None
+    if "comment_id" not in df_s.columns or "sentiment" not in df_s.columns:
+        return None
 
     label_map = {"POS": "positivo", "NEG": "negativo", "NEU": "neutro"}
-    df['sentimiento'] = [label_map.get(e, "neutro") for e in etiquetas]
+    df_s = df_s[["comment_id", "sentiment"]].copy()
+    df_s["sentimiento"] = df_s["sentiment"].map(label_map).fillna("neutro")
 
-    counts = df['sentimiento'].value_counts()
-    print("\n-> Distribución de sentimiento:")
-    for sent, n in counts.items():
-        print(f"   {sent}: {n:,} ({n/total*100:.1f}%)")
-
-    return df
+    merged = df.merge(df_s[["comment_id", "sentimiento"]], on="comment_id", how="left")
+    merged["sentimiento"] = merged["sentimiento"].fillna("neutro")
+    print(f"\n🔁 Reutilizando sentimiento ya calculado: {os.path.basename(ruta)}")
+    return merged
 
 
 # apply_estilo_periodistico importada desde config.viz_style (ver arriba)
@@ -1000,7 +995,7 @@ def generar_nubes_sentimiento(df, file_id):
 
 def find_latest_csv(data_dirs=None):
     """Busca el CSV de comentarios más reciente en las carpetas de datos.
-    Busca en: data/, data_tiktok/ y outputs/"""
+    Busca en: data/ y data_tiktok/"""
     if data_dirs is None:
         data_dirs = [
             os.path.join(BASE_DIR, "data"),
@@ -1061,7 +1056,8 @@ def main(csv_file_arg=None):
             print("  1. Ejecuta la opción 1 o 2 del menú para descargar videos")
             print("  2. Luego ejecuta la opción 3 para descargar comentarios")
             print("  3. Después ejecuta esta opción nuevamente")
-            input("\nPresiona Enter para volver al menú...")
+            if _sys.stdin.isatty():
+                input("\nPresiona Enter para volver al menú...")
             return
 
     base_name = os.path.basename(csv_file)
@@ -1070,7 +1066,7 @@ def main(csv_file_arg=None):
     create_output_folder(file_id)
 
     try:
-        df = pd.read_csv(csv_file)
+        df = pd.read_csv(csv_file, encoding="utf-8-sig")
         required_cols = ['texto', 'autor_handle', 'likes', 'fecha']
         if not all(col in df.columns for col in required_cols):
             print(f"Error: El CSV debe contener las columnas: {', '.join(required_cols)}")
@@ -1078,18 +1074,25 @@ def main(csv_file_arg=None):
             print(f"Columnas faltantes: {', '.join(missing)}")
             return
         print(f"Cargados {len(df):,} comentarios en total.")
+        # Deduplicar por comment_id si existe (un re-scraping pudo duplicar filas).
+        for _idc in ('comment_id', 'comentario_id', 'cid'):
+            if _idc in df.columns:
+                _antes = len(df)
+                df = df.drop_duplicates(subset=[_idc]).reset_index(drop=True)
+                if _antes != len(df):
+                    print(f"🧹 {_antes - len(df):,} comentarios duplicados eliminados (por '{_idc}')")
+                break
     except Exception as e:
         print(f"Error crítico al leer el CSV: {e}")
         return
 
-    # Filtrar solo comentarios directos (no replies)
+    # FUN-12: se analizan TODOS los comentarios (directos + respuestas) para
+    # describir la misma población que sentimiento y enriquecimiento.
     if 'is_reply' in df.columns:
-        n_total = len(df)
-        df = df[df['is_reply'] == 0].copy()
-        n_replies = n_total - len(df)
-        print(f"Filtrando comentarios directos: {len(df):,} ({len(df)/n_total*100:.1f}%) — {n_replies:,} replies excluidas")
+        n_rep = int((pd.to_numeric(df['is_reply'], errors='coerce') == 1).sum())
+        print(f"Analizando todos los comentarios: {len(df):,} (incluye {n_rep:,} respuestas)")
     else:
-        print("Columna 'is_reply' no encontrada — se analizan todos los comentarios.")
+        print(f"Analizando todos los comentarios: {len(df):,}")
 
     # --- Interfaz de Colores (con fallback a valores por defecto) ---
     final_color_text = '#A93226'  # Color por defecto (rojo TikTok)
@@ -1122,23 +1125,45 @@ def main(csv_file_arg=None):
     print(f"\n🎨 Colores: Nubes={final_color_text}, Barras={final_color_bars}")
 
     # --- Generar Análisis ---
-    generar_ranking_palabras(df, file_id, final_color_bars)   # ranking antes de nube
-    generar_nubes(df, file_id, final_color_text, final_color_text)
-    generar_analisis_comunidad(df, file_id, final_color_bars)
+    # Cada bloque en su propio try/except: si uno falla (p.ej. una nube sin
+    # palabras suficientes) no debe impedir que se regeneren los demás.
+    try:
+        generar_ranking_palabras(df, file_id, final_color_bars)   # ranking antes de nube
+    except Exception as e:
+        print(f"-> Error generando ranking de palabras: {e}")
+    try:
+        generar_nubes(df, file_id, final_color_text, final_color_text)
+    except Exception as e:
+        print(f"-> Error generando nubes: {e}")
+    try:
+        generar_analisis_comunidad(df, file_id, final_color_bars)
+    except Exception as e:
+        print(f"-> Error generando análisis de comunidad: {e}")
     generar_analisis_temporal(df, file_id, final_color_bars)
 
-    # --- Análisis de Sentimiento con IA ---
-    df_sentimiento = analizar_sentimiento_ia(df)
-    generar_grafica_sentimiento(df_sentimiento, file_id, final_color_bars)
-    generar_evolucion_sentimiento_acumulada(df_sentimiento, file_id)
-    generar_nubes_sentimiento(df_sentimiento, file_id)
-    generar_top_emojis(df_sentimiento, file_id)
-    exportar_cuentas_por_sentimiento(df_sentimiento, file_id)
-    exportar_cuentas_sentimiento_dominante(df_sentimiento, file_id)
+    # --- Gráficas de sentimiento ---
+    # El sentimiento lo calcula el botón "Sentimiento IA" (Groq o RoBERTa, con
+    # checkpoint); aquí solo se reutiliza si ya existe, nunca se recalcula.
+    df_sentimiento = _cargar_sentimiento_precalculado(csv_file, df)
+    if df_sentimiento is None:
+        print("\nℹ️  No hay CSV de sentimiento para este proyecto todavía — "
+              "ejecuta primero 'Sentimiento IA' para generar las gráficas de "
+              "sentimiento. El resto del análisis ya se ha completado.")
+    else:
+        try:
+            generar_grafica_sentimiento(df_sentimiento, file_id, final_color_bars)
+            generar_evolucion_sentimiento_acumulada(df_sentimiento, file_id)
+            generar_nubes_sentimiento(df_sentimiento, file_id)
+            generar_top_emojis(df_sentimiento, file_id)
+            exportar_cuentas_por_sentimiento(df_sentimiento, file_id)
+            exportar_cuentas_sentimiento_dominante(df_sentimiento, file_id)
+        except Exception as e:
+            print(f"-> Error generando gráficas de sentimiento: {e}")
 
     print(f"\n✅ ¡PROCESO COMPLETADO!")
     print(f"📂 Revisa la carpeta '{OUTPUT_FOLDER}' para ver los resultados de '{file_id}'.")
-    input("\nPresiona Enter para volver al menú...")
+    if _sys.stdin.isatty():
+        input("\nPresiona Enter para volver al menú...")
 
 if __name__ == "__main__":
     import sys

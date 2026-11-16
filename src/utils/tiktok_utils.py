@@ -20,11 +20,13 @@ Importar desde los scrapers:
 import os
 import re
 import sys
+import csv
 import glob
 import json
 import asyncio
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 # ---------------------------------------------------------------------------
 # PARÁMETROS POR LÍNEA DE COMANDOS
@@ -158,6 +160,25 @@ def is_likely_in_date_range(
     return True
 
 
+def id_posible_en_rango(video_id: str, start_dt, end_dt, margen_dias: int = 14) -> bool:
+    """Filtro previo por la fecha del id, sin descartar vídeos que se publicaron más tarde que su id.
+
+    El id guarda el instante en que se CREÓ el vídeo; createTime (la fecha real) puede ser posterior si estaba
+    como borrador o programado, nunca anterior. Por eso por arriba basta 1 día de margen y por abajo se deja
+    `margen_dias`. El filtro definitivo se aplica luego sobre createTime.
+    """
+    if not start_dt and not end_dt:
+        return True
+    d = get_date_from_video_id(video_id)
+    if not d:
+        return True
+    if start_dt and d.date() < (start_dt - timedelta(days=margen_dias)).date():
+        return False
+    if end_dt and d.date() > (end_dt + timedelta(days=1)).date():
+        return False
+    return True
+
+
 def is_in_date_range(
     video_id: str,
     start_dt: datetime,
@@ -248,6 +269,450 @@ def parse_count(text: str) -> int:
             return int(cleaned) if cleaned else 0
     except Exception:
         return 0
+
+
+def _json(valor) -> str:
+    if valor in (None, "", [], {}):
+        return ""
+    return json.dumps(valor, ensure_ascii=False, separators=(",", ":"))
+
+
+def _celda(valor) -> str:
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    return str(valor)
+
+
+# ---------------------------------------------------------------------------
+# CAMPOS FORENSES: snowflake (fechas ocultas en los ids), CDN, calidad, moderación
+# ---------------------------------------------------------------------------
+
+def _entero(valor) -> int:
+    try:
+        return int(float(valor))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _id_snowflake(valor) -> tuple:
+    """(unix ts en s, secuencia) de un id snowflake de TikTok: 32 bits altos y bajos. (0, "") si no es plausible (2014-2036)."""
+    try:
+        v = int(str(valor).strip())
+    except ValueError:
+        return 0, ""
+    ts = v >> 32
+    return (ts, v & 0xFFFFFFFF) if 1_400_000_000 < ts < 2_100_000_000 else (0, "")
+
+
+def _snowflake_ts(valor) -> int:
+    """Unix ts (s) en los 32 bits altos de un id de TikTok (vídeo o usuario); 0 si no es plausible."""
+    return _id_snowflake(valor)[0]
+
+
+try:
+    from zoneinfo import ZoneInfo
+    _MADRID = ZoneInfo("Europe/Madrid")
+except Exception:  # sin tzdata (Windows limpio): se usa la hora local de la máquina
+    _MADRID = None
+
+
+def _fecha_local_a_ts(texto, formato: str, ref_ts: int = 0) -> int:
+    """Hora local de España (como la guardan los scrapers) → unix UTC; 0 si no se puede leer.
+
+    En la hora repetida del cambio de horario hay dos instantes posibles: se elige el más cercano a ref_ts (snowflake).
+    """
+    try:
+        dt = datetime.strptime(str(texto).strip(), formato)
+    except ValueError:
+        return 0
+    cands = {int(dt.replace(tzinfo=_MADRID, fold=f).timestamp()) for f in (0, 1)} if _MADRID else {int(dt.timestamp())}
+    return min(cands, key=lambda t: abs(t - ref_ts))
+
+
+def _utc(ts: int) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+
+def cluster_cdn(url) -> str:
+    """Identificador de almacenamiento (origin bucket) que TikTok pone en la ruta de una URL: `tos-<id>-…`.
+
+    Es una etiqueta interna de infraestructura de TikTok (no1a, maliva, useast2a, alisg…) SIN significado geográfico
+    documentado: no indica dónde está la persona ni el servidor que nos respondió. El host (p16-…, v16-…) no se lee.
+    Su señal útil es de cohorte (antigüedad/migración de la cuenta), no de ubicación.
+    """
+    if not isinstance(url, str):
+        return ""
+    m = (re.search(r"tos-([a-z0-9]+)-", url) or re.search(r"/video/tos/([a-z0-9]+)/", url)
+         or re.search(r"musically-([a-z0-9]+)-obj", url))  # avatares antiguos: /musically-maliva-obj/
+    return m.group(1) if m else ""
+
+
+def bucket_cdn(url) -> tuple:
+    """(bucket completo, sufijo, legacy_musically) de la ruta de una URL de TikTok; ("", "", False) si no hay bucket.
+
+    bucket: `tos-no1a-avt-0068c001-no` o `musically-maliva-obj`. Sufijo: último tramo alfabético de un bucket `tos-`
+    de 5+ tramos (`no`, `euttp`, `sg`, `us`); vacío si el bucket acaba en un id (`tos-maliva-avt-0068`).
+    legacy_musically: avatar antiguo `musically-*-obj`, que cluster_cdn() colapsa con `tos-maliva-*`.
+    """
+    if not isinstance(url, str):
+        return "", "", False
+    m = re.search(r"/(tos-[a-z0-9]+-[a-z0-9-]+|musically-[a-z0-9]+-obj)(?=[/?~]|$)", url)
+    if not m:
+        return "", "", False
+    bucket = m.group(1)
+    partes = bucket.split("-")
+    sufijo = partes[-1] if bucket.startswith("tos-") and len(partes) >= 5 and partes[-1].isalpha() else ""
+    return bucket, sufijo, bucket.startswith("musically-")
+
+
+def _bucket_cols(prefijo: str, url) -> dict:
+    bucket, sufijo, _ = bucket_cdn(url)
+    return {f"{prefijo}_origin_bucket": bucket, f"{prefijo}_bucket_suffix": sufijo}
+
+
+def escribir_atomico(ruta: str, escribir, **kw) -> None:
+    """Escribe en un temporal propio del proceso y lo cambia por `ruta` de golpe: nunca queda un fichero a medias."""
+    tmp = f"{ruta}.{os.getpid()}.tmp"
+    with open(tmp, "w", **kw) as f:
+        escribir(f)
+    os.replace(tmp, ruta)
+
+
+def leer_filas_previas(json_path: str, csv_path: str) -> dict:
+    """Vídeos ya capturados, por video_id: CSV como base y JSON encima (más completo).
+
+    Si un fichero existe pero no se puede leer se sigue con el otro; si existen y NINGUNO se lee, lanza
+    RuntimeError para no sobrescribir un histórico que no se ha podido recuperar.
+    """
+    filas, errores, leido = {}, [], False
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    if r.get("video_id"):
+                        filas[str(r["video_id"])] = dict(r)
+            leido = True
+        except (OSError, csv.Error, UnicodeDecodeError) as e:
+            errores.append(f"{csv_path}: {e}")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, encoding="utf-8") as f:
+                datos = json.load(f)
+            for r in (datos.get("videos") if isinstance(datos, dict) else datos) or []:
+                if isinstance(r, dict) and r.get("video_id"):
+                    filas[str(r["video_id"])] = {**filas.get(str(r["video_id"]), {}), **r}
+            leido = True
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            errores.append(f"{json_path}: {e}")
+    if errores and not leido:
+        raise RuntimeError("No se pudo leer el histórico; no se sobrescribe: " + " | ".join(errores))
+    if errores:
+        print("⚠️ Histórico leído solo en parte: " + " | ".join(errores))
+    return filas
+
+
+def fusionar_filas_video(previas: dict, nuevas: list) -> list:
+    """Suma `nuevas` a `previas` por video_id sin perder nada: un valor vacío nuevo no pisa uno ya capturado.
+
+    A las filas antiguas (capturadas antes de los campos forenses) se les rellena lo calculable desde la propia fila.
+    """
+    for r in nuevas:
+        vid = str(r.get("video_id") or "")
+        if not vid:
+            continue
+        fila = dict(previas.get(vid, {}))
+        for k, v in r.items():
+            if v not in ("", None) or k not in fila:
+                fila[k] = v
+        previas[vid] = fila
+    for fila in previas.values():
+        try:
+            retro = campos_forenses_desde_fila(fila)
+        except Exception:  # una fila rara no debe impedir guardar el resto
+            continue
+        for k, v in retro.items():
+            if fila.get(k) in (None, "") and v not in (None, ""):
+                fila[k] = v
+    return list(previas.values())
+
+
+def _bitrate_desde_url(url) -> int | str:
+    """El parámetro bt= del CDN es video.bitrate/1024 (mediana 1024,5 sobre 310 pares reales): se reescala a bps."""
+    try:
+        bt = parse_qs(urlparse(url).query).get("bt", [""])[0]
+    except (AttributeError, ValueError):
+        return ""
+    return int(bt) * 1024 if bt.isdigit() else ""
+
+
+def _latencia_moderacion(conclu_ms, create_ts: int) -> float | str:
+    """Segundos entre la publicación y el veredicto del clasificador de Trust & Safety (conclu_calculated_time)."""
+    ms = _entero(conclu_ms)
+    return round(ms / 1000.0 - create_ts, 2) if ms and create_ts else ""
+
+
+def _derivados_id(create_ts: int, video_id, autor_uid) -> dict:
+    """Fechas y desfase calculables solo con createTime + ids. desfase > 5 min ⇒ vídeo subido como borrador/programado."""
+    sf = _snowflake_ts(video_id)
+    desfase = create_ts - sf if create_ts and sf else ""
+    return {
+        "video_fecha_utc": _utc(create_ts),
+        "video_snowflake_utc": _utc(sf),
+        "desfase_subida_seg": desfase,
+        "inferencia_programado": "" if desfase == "" else int(abs(desfase) > 300),
+        "autor_fecha_creacion_cuenta": _utc(_snowflake_ts(autor_uid)),
+    }
+
+
+def campos_forenses(item: dict) -> dict:
+    """21 campos forenses del itemStruct de TikTok. Vacío ("") cuando el dato no existe (distinto de 0)."""
+    item = item or {}
+    v = item.get("video") or {}
+    music = item.get("music") or {}
+    vol = v.get("volumeInfo") or {}
+    poi = item.get("poi") or {}
+    warn = item.get("warnInfo")
+    subs = v.get("subtitleInfos") or []
+    play = v.get("playAddr") or ""
+    if isinstance(play, dict):
+        play = (play.get("UrlList") or play.get("url_list") or [""])[0]
+    play = play or ((v.get("PlayAddrStruct") or {}).get("UrlList") or [""])[0]
+    sub_url = subs[0].get("Url", "") if subs else ""
+    ref = play if cluster_cdn(play) else (sub_url or play)  # si playAddr no da cluster, prueba el subtítulo
+    # el bucket completo puede estar en otra URL del payload que la usada para el clúster
+    candidatas = [play, *((v.get("PlayAddrStruct") or {}).get("UrlList") or []), v.get("downloadAddr"), sub_url]
+    url_bucket = next((u for u in candidatas if bucket_cdn(u)[0]), ref)
+    create_ts = _entero(item.get("createTime"))
+    der = _derivados_id(create_ts, item.get("id"), (item.get("author") or {}).get("id"))
+    cuenta = der.pop("autor_fecha_creacion_cuenta")  # va la última, como en la especificación
+    return {
+        **der,
+        "cdn_cluster_video": cluster_cdn(ref),
+        "cdn_cluster_audio": cluster_cdn(music.get("playUrl")),
+        "poi_city_code": poi.get("cityCode", ""),
+        "poi_country_code": poi.get("countryCode", ""),
+        "video_reposts": (item.get("statsV2") or {}).get("repostCount"),
+        "video_bitrate": v.get("bitrate") or _bitrate_desde_url(ref),
+        # TikTok lo guarda en video.VQScore; la ruta claInfo.originalLanguageInfo.vqScore no aparece en datos reales
+        "video_vqscore": v["VQScore"] if v.get("VQScore") is not None else ((v.get("claInfo") or {}).get("originalLanguageInfo") or {}).get("vqScore"),
+        "audio_loudness_lufs": vol.get("Loudness"),
+        "audio_peak": vol.get("Peak"),
+        "music_id": music.get("id"),
+        # el item no trae "moderation_info": el sello de tiempo vive en penaltyContext
+        "latencia_moderacion_seg": _latencia_moderacion((item.get("penaltyContext") or {}).get("conclu_calculated_time"), create_ts),
+        "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
+        "autor_fecha_creacion_cuenta": cuenta,
+        **_bucket_cols("video", url_bucket),
+        **_bucket_cols("audio", music.get("playUrl")),
+    }
+
+
+def campos_forenses_desde_fila(row: dict) -> dict:
+    """Los campos forenses que se pueden derivar de una fila de CSV ya capturada, sin volver a TikTok.
+
+    Solo devuelve los calculables (no hay poi/reposts/vqscore/loudness/music_id). Valores de la fila como
+    texto (leer con dtype=str, keep_default_na=False). video_fecha es hora local de España.
+    """
+    create_ts = _fecha_local_a_ts(row.get("video_fecha"), "%d-%m-%Y %H:%M:%S", _snowflake_ts(row.get("video_id")))
+    sub = str(row.get("subtitulos_urls") or "").split("|")[0]
+    def leer(clave, defecto):
+        try:
+            return json.loads(row.get(clave) or "") or defecto
+        except (json.JSONDecodeError, TypeError):  # TypeError: NaN de pandas
+            return defecto
+
+    pen, warn = leer("moderacion_json", {}), leer("aviso_json", [])
+    return {
+        **_derivados_id(create_ts, row.get("video_id"), row.get("autor_uid")),
+        "cdn_cluster_video": cluster_cdn(sub),
+        "cdn_cluster_audio": cluster_cdn(row.get("audio_url")),
+        "video_bitrate": _bitrate_desde_url(sub),
+        "latencia_moderacion_seg": _latencia_moderacion(pen.get("conclu_calculated_time") if isinstance(pen, dict) else None, create_ts),
+        "banner_institucional_key": warn[0].get("key", "") if isinstance(warn, list) and warn and isinstance(warn[0], dict) else "",
+        **_bucket_cols("video", sub),
+        **_bucket_cols("audio", row.get("audio_url")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# COMENTARIOS: 12 columnas históricas + 18 forenses (siempre al final)
+# ---------------------------------------------------------------------------
+
+COLUMNAS_COMENTARIOS_BASE = [
+    "video_id", "video_url", "username", "comment_id", "fecha", "autor_nombre", "autor_handle",
+    "texto", "likes", "aweme_id_api", "is_reply", "parent_comment_id",
+]
+COLUMNAS_COMENTARIOS_FORENSES = [
+    "comment_timestamp_unix", "comment_fecha_utc", "comment_snowflake_utc", "comment_secuencia",
+    "comment_ip_label", "comment_idioma", "autor_uid", "autor_secuid", "autor_fecha_creacion_cuenta",
+    "autor_cluster_cdn", "total_respuestas_hilo", "like_del_creador", "comentario_fijado",
+    "reply_to_comment_id", "reply_to_userid",
+    "autor_avatar_origin_bucket", "autor_avatar_bucket_suffix", "autor_avatar_legacy_musically",
+]
+COLUMNAS_COMENTARIOS = COLUMNAS_COMENTARIOS_BASE + COLUMNAS_COMENTARIOS_FORENSES
+
+
+def _bool(v) -> int:
+    """0/1 también desde texto de CSV: "0", "false" y "" son falsos."""
+    return int(str(v).strip().lower() not in ("", "0", "false", "none", "null"))
+
+
+def _o_vacio(valor, convertir=_entero):
+    """"" solo si el dato falta (None); un 0 real se conserva."""
+    return "" if valor is None else convertir(valor)
+
+
+def campos_forenses_comentario(c: dict) -> dict:
+    """15 campos forenses de un comentario crudo de /api/comment/list/ o /api/comment/list/reply/.
+
+    create_time (la fecha real) va entre 9 s y 25 min DETRÁS del snowflake del cid (mediana 29 s): no coinciden.
+    reply_to_reply_id/reply_to_userid solo vienen cuando la respuesta contesta a otra respuesta (distinta del raíz).
+    """
+    c = c if isinstance(c, dict) else {}
+    user = c.get("user") if isinstance(c.get("user"), dict) else {}
+    sf, seq = _id_snowflake(c.get("cid"))
+    ct = _entero(c.get("create_time"))
+    urls_av = (user.get("avatar_thumb") or {}).get("url_list") or []
+    av_url = next((u for u in urls_av if bucket_cdn(u)[0]), next((u for u in urls_av if cluster_cdn(u)), ""))
+    avatar = cluster_cdn(av_url)
+    av_bucket, av_sufijo, av_legacy = bucket_cdn(av_url)
+    pos, pin = c.get("stick_position"), c.get("author_pin")
+    sin_destino = ("", "0", "None")
+    return {
+        "comment_timestamp_unix": ct or sf or "",
+        "comment_fecha_utc": _utc(ct or sf),
+        "comment_snowflake_utc": _utc(sf),
+        "comment_secuencia": seq,
+        "comment_ip_label": _o_vacio(c.get("ip_label"), str),  # la API web actual no lo devuelve (0 de 628)
+        "comment_idioma": _o_vacio(c.get("comment_language"), str),
+        "autor_uid": _o_vacio(user.get("uid"), str),
+        "autor_secuid": _o_vacio(user.get("sec_uid"), str),
+        "autor_fecha_creacion_cuenta": _utc(_snowflake_ts(user.get("uid"))),
+        "autor_cluster_cdn": avatar,
+        "total_respuestas_hilo": _o_vacio(c.get("reply_comment_total")),  # solo en comentarios raíz
+        "like_del_creador": _o_vacio(c.get("is_author_digged"), _bool),
+        "comentario_fijado": "" if pos is None and pin is None else int(_entero(pos) > 0 or bool(_bool(pin))),
+        "reply_to_comment_id": "" if str(c.get("reply_to_reply_id")) in sin_destino else str(c["reply_to_reply_id"]),
+        "reply_to_userid": "" if str(c.get("reply_to_userid")) in sin_destino else str(c["reply_to_userid"]),
+        "autor_avatar_origin_bucket": av_bucket,
+        "autor_avatar_bucket_suffix": av_sufijo,
+        "autor_avatar_legacy_musically": str(av_legacy) if av_bucket else "",
+    }
+
+
+def campos_forenses_comentario_desde_fila(row: dict) -> dict:
+    """Los 4 campos temporales calculables de una fila de CSV antiguo (12 columnas); el resto queda "".
+
+    La hora sale de `fecha` (create_time, local de España); el snowflake solo desambigua la hora repetida
+    del cambio de horario o sustituye a una `fecha` ilegible (entonces va ~29 s adelantado).
+    """
+    sf, seq = _id_snowflake(row.get("comment_id"))
+    ts = _fecha_local_a_ts(row.get("fecha"), "%Y-%m-%d %H:%M:%S", sf) or sf
+    res = dict.fromkeys(COLUMNAS_COMENTARIOS_FORENSES, "")
+    res.update(comment_timestamp_unix=ts or "", comment_fecha_utc=_utc(ts), comment_snowflake_utc=_utc(sf), comment_secuencia=seq)
+    return res
+
+
+def migrar_csv_comentarios(ruta: str) -> int:
+    """Pasa in situ un CSV de comentarios de 12 (o 27) columnas a las 30, sin perder filas ni columnas. Devuelve las filas migradas.
+
+    0 si ya está al día. Lanza ValueError (sin tocar el fichero) si trae columnas ajenas que se perderían.
+    """
+    with open(ruta, encoding="utf-8-sig", newline="") as f:
+        lector = csv.DictReader(f)
+        if lector.fieldnames == COLUMNAS_COMENTARIOS:
+            return 0
+        ajenas = [c for c in lector.fieldnames or [] if c not in COLUMNAS_COMENTARIOS]
+        if ajenas:
+            raise ValueError(f"{ruta}: columnas ajenas {ajenas}; no se migra para no perderlas")
+        filas = list(lector)
+    if any(None in f or None in f.values() for f in filas):  # DictReader pone aquí las filas con más o menos campos
+        raise ValueError(f"{ruta}: filas con nº de campos distinto a la cabecera; no se migra")
+    tmp = ruta + ".tmp"
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=COLUMNAS_COMENTARIOS)
+        w.writeheader()
+        for fila in filas:
+            for k, v in campos_forenses_comentario_desde_fila(fila).items():
+                if not fila.get(k):
+                    fila[k] = v
+            w.writerow(fila)
+    os.replace(tmp, ruta)
+    return len(filas)
+
+
+def metadatos_ampliados(item: dict) -> dict:
+    """Metadatos OSINT del itemStruct de una publicación (vídeo o foto) que no son métricas básicas.
+
+    País atribuido por TikTok (locationCreated), idioma, etiquetas de IA, moderación (penaltyContext),
+    lugar etiquetado (poi), categorías del recomendador, anuncios, stickers y anclas. Valores en texto.
+    """
+    item = item or {}
+    pen = item.get("penaltyContext") or {}
+    poi = item.get("poi") or {}
+    duet = item.get("duetInfo") or {}
+    ia = item.get("creatorAIComment") or {}
+    autor = item.get("author") or {}
+    subs = (item.get("video") or {}).get("subtitleInfos") or []
+    fotos = (item.get("imagePost") or {}).get("images") or []
+    return {k: _celda(v) for k, v in {
+        "pais_creacion": item.get("locationCreated", ""),
+        "idioma_texto": item.get("textLanguage", ""),
+        "idioma_titulo": item.get("titleLanguage", ""),
+        "traducible": item.get("textTranslatable"),
+        "categoria": item.get("CategoryType"),
+        "categorias_recomendador": "|".join(item.get("diversificationLabels") or []),
+        "id_recomendador": item.get("diversificationId"),
+        "es_anuncio": item.get("isAd"),
+        "aigc_tipo": item.get("aigcLabelType"),
+        "aigc_moderacion": item.get("moderationAigcLabelType"),
+        "es_aigc": item.get("IsAigc"),
+        "aviso_ia_visible": item.get("ShowAIGC"),
+        "aviso_ia": item.get("AIGCDescription", ""),
+        "ia_creador_tema": ia.get("hasAITopic"),
+        "ia_creador_motivo": ia.get("notEligibleReason"),
+        "contenido_clasificado": item.get("isContentClassified"),
+        "motivo_clasificacion": item.get("ContentClassificationReason", ""),
+        "moderacion_estado": pen.get("status"),
+        "moderacion_estado_video": pen.get("video_status"),
+        "moderacion_revisado": pen.get("reviewed"),
+        "moderacion_veredicto": pen.get("ec_global_verdict"),
+        "moderacion_seguridad": pen.get("arb_content_safety_status"),
+        "moderacion_penalizacion": pen.get("display_penalty_type"),
+        "moderacion_json": _json(pen),
+        "en_revision": item.get("isReviewing"),
+        "prohibido": item.get("isProhibited"),
+        "retirado": item.get("takeDown"),
+        "aviso_json": _json(item.get("warnInfo")),
+        "control_json": _json(item.get("item_control")),
+        "lugar": poi.get("name", ""),
+        "lugar_direccion": poi.get("address", ""),
+        "lugar_ciudad": poi.get("city") or poi.get("fatherPoiName", ""),
+        "lugar_tipo": poi.get("ttTypeNameTiny", ""),
+        "anclas": "|".join(str(a.get("keyword") or a.get("type", "")) for a in item.get("anchors") or []),
+        "stickers": "|".join(" ".join(s.get("stickerText") or []) for s in item.get("stickersOnItem") or []),
+        "efectos": "|".join(e.get("name", "") for e in item.get("effectStickers") or []),
+        "palabras_sugeridas": "|".join(item.get("suggestedWords") or []),
+        "etiquetas_canal": _json(item.get("channelTags")),
+        "item_original": item.get("originalItem"),
+        "duet_de": duet.get("duetFromId", ""),
+        "programado": item.get("scheduleTime"),
+        "autor_uid": autor.get("id", ""),
+        "autor_secuid": autor.get("secUid", ""),
+        "autor_bio": autor.get("signature", ""),
+        "autor_seguidos": (item.get("authorStats") or {}).get("followingCount"),
+        "subtitulos_idiomas": "|".join(f"{x.get('LanguageCodeName', '')}:{x.get('Source', '')}" for x in subs),
+        "subtitulos_urls": "|".join(x.get("Url", "") for x in subs),  # caducan: descargar el texto al capturar
+        "fotos_urls": "|".join((f.get("imageURL") or {}).get("urlList", [""])[0] for f in fotos),
+        "hashtags_ids": "|".join(f"{t.get('hashtagId')}:{t.get('hashtagName')}" for t in item.get("textExtra") or [] if t.get("hashtagName")),
+        "audio_url": (item.get("music") or {}).get("playUrl", ""),
+        **campos_forenses(item),  # siempre al final: las columnas anteriores no cambian de sitio
+    }.items()}
+
+
+COLUMNAS_AMPLIADAS = list(metadatos_ampliados({}))
 
 
 # ---------------------------------------------------------------------------

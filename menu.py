@@ -38,6 +38,8 @@ import time
 import queue
 import threading
 import subprocess
+import tempfile
+from pathlib import Path
 from datetime import datetime
 
 import customtkinter as ctk
@@ -90,10 +92,10 @@ def _f(size=12, weight="normal"):
 # sentimiento (te hace elegir proveedor de IA).
 # ---------------------------------------------------------------------------
 
-def F(flag, label, placeholder, *, required=False, kind="text", hint=""):
+def F(flag, label, placeholder, *, required=False, kind="text", hint="", choices=None):
     """Campo de entrada del panel; su valor viaja al script como `flag valor`."""
     return {"flag": flag, "label": label, "placeholder": placeholder,
-            "required": required, "kind": kind, "hint": hint}
+            "required": required, "kind": kind, "hint": hint, "choices": choices}
 
 GROUPS = [
     ("setup",   "Configuración"),
@@ -111,6 +113,9 @@ ACTIONS = [
         help="Abre un navegador para que inicies sesión en TikTok y guarda las "
              "cookies en secrets/. Es el paso 0: sin sesión válida los scrapers "
              "obtienen resultados incompletos o vacíos.",
+        inputs=[F("--cuenta", "Cuenta de acceso", "principal", kind="choice",
+                  choices=["principal", "secundaria"],
+                  hint="La secundaria se guarda aparte; no reemplaza la principal.")],
     ),
 
     dict(
@@ -123,6 +128,42 @@ ACTIONS = [
               hint="Sin la @. Solo el nombre de usuario del perfil."),
             F("--desde", "Publicados desde", "dd-mm-aaaa", kind="date"),
             F("--hasta", "Publicados hasta", "dd-mm-aaaa", kind="date"),
+        ],
+    ),
+    dict(
+        id="relaciones", group="captura", icon="\U0001f465", label="Seguidores y seguidos",
+        script="src/scrapers/tiktok_descargar_relaciones.py",
+        requires=[], produces=None, arg_key=None, project_rule="relation_user", relation_download=True,
+        help="Descarga los seguidores (followers), los seguidos (following) o ambas listas. "
+             "Guarda CSV y grafo por cuenta, con los contadores y las posibles diferencias.",
+        inputs=[
+            F("--user", "Cuenta de TikTok", "blocusespanol", required=True,
+              hint="Acepta usuario, @usuario o URL del perfil."),
+            F("--lista", "Qué descargar", "ambas", kind="choice",
+              choices=["ambas", "seguidores", "seguidos"]),
+            F("--sesion", "Acceso", "anonima", kind="choice",
+              choices=["anonima", "principal", "secundaria"],
+              hint="Elige una sesión guardada si quieres usar una de tus cuentas."),
+            F("--max-cuentas", "Máximo por lista", "0", kind="nonnegative",
+              hint="Vacío o 0: hasta el final disponible. Los límites o diferencias quedan en el resumen."),
+        ],
+    ),
+    dict(
+        id="relaciones_lote", group="captura", icon="📂", label="Cuentas desde CSV/TXT",
+        script="src/scrapers/tiktok_descargar_relaciones.py",
+        requires=[], produces=None, arg_key=None, project_rule="relation_batch", relation_download=True,
+        help="Carga varias cuentas y descarga sus seguidores, seguidos o ambas listas. "
+             "Cada cuenta tiene su carpeta; el lote incluye un resumen de resultados y cuentas no disponibles.",
+        inputs=[
+            F("--archivo", "Archivo de cuentas", "Selecciona un CSV o TXT…", required=True, kind="accounts_file",
+              hint="TXT: una cuenta por línea. CSV: columna username, cuenta o URL. Se omiten duplicados."),
+            F("--lista", "Qué descargar", "ambas", kind="choice",
+              choices=["ambas", "seguidores", "seguidos"]),
+            F("--sesion", "Acceso", "anonima", kind="choice",
+              choices=["anonima", "principal", "secundaria"],
+              hint="Selecciona una sesión guardada para este lote."),
+            F("--max-cuentas", "Máximo por cuenta y lista", "0", kind="nonnegative",
+              hint="Vacío o 0: hasta el final disponible. Se procesa una cuenta cada vez."),
         ],
     ),
     dict(
@@ -164,8 +205,8 @@ ACTIONS = [
         script="src/analysis/analizar_sentimiento.py",
         requires=["comments"], produces="sentiment", arg_key="comments", console=True,
         help="Clasifica cada comentario con IA. El script te dejará elegir el "
-             "proveedor: RoBERTa (local), Groq o Mistral. Groq y Mistral añaden "
-             "sesgo, arquetipo, intención y pain points; RoBERTa solo sentimiento.",
+             "proveedor: RoBERTa (local) o Groq. Groq añade sesgo, arquetipo, "
+             "intención y pain points; RoBERTa solo sentimiento.",
     ),
 
     dict(
@@ -181,6 +222,28 @@ ACTIONS = [
         requires=["enriched"], produces=None, arg_key="enriched",
         help="Detecta indicios de automatización: antigüedad anómala, ráfagas "
              "de creación, perfiles vacíos y actividad concentrada.",
+    ),
+    dict(
+        id="forense_pub", group="osint", icon="🔬", label="Informe forense: publicaciones",
+        script="src/analysis/informe_forense.py",
+        requires=[], produces=None, arg_key="videos", opens_report="forense",
+        help="Analiza el CSV de publicaciones con las columnas nuevas (fechas, moderación, IA, CDN, cohortes) "
+             "y señala lo anómalo. Usa el del proyecto o el que elijas.",
+        inputs=[
+            F("--archivo", "Otro archivo (opcional)", "Vacío: el CSV de vídeos del proyecto", kind="csv_file",
+              hint="Elige cualquier CSV de publicaciones, p. ej. una recaptura."),
+        ],
+    ),
+    dict(
+        id="forense_com", group="osint", icon="🔬", label="Informe forense: comentarios",
+        script="src/analysis/informe_forense.py",
+        requires=[], produces=None, arg_key="comments", opens_report="forense",
+        help="Analiza el CSV de comentarios con las columnas nuevas (fechas, cohortes, ráfagas, textos copiados, "
+             "avatares) y señala lo anómalo. Usa el del proyecto o el que elijas.",
+        inputs=[
+            F("--archivo", "Otro archivo (opcional)", "Vacío: el CSV de comentarios del proyecto", kind="csv_file",
+              hint="Elige cualquier CSV de comentarios, p. ej. una recaptura."),
+        ],
     ),
     dict(
         id="grafo", group="osint", icon="🕸️", label="Grafo de redes (GEXF)",
@@ -231,8 +294,13 @@ def _project_root() -> str:
     return os.path.abspath(os.path.dirname(__file__))
 
 
+sys.path.insert(0, _project_root())
+from config.rutas import derivar_proyecto, dir_informes
+from src.utils.tiktok_relaciones_entrada import account_name, read_accounts
+
+
 # Archivos auxiliares que nunca son la salida de un paso.
-IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint")
+IGNORE_MARKERS = ("lookup_fechas_creacion", "_checkpoint", "_no_disponibles")
 
 # Nombres que delatan una prueba o un descarte: se aceptan, pero pierden
 # frente a cualquier archivo equivalente que no los lleve.
@@ -243,9 +311,9 @@ JUNK_MARKERS = ("prueba", "_test", "debug", "_old", "_lite", "backup", "_bak")
 COMMENT_PATTERNS = (("comentarios_api", 3), ("comentarios", 2), ("comments", 1))
 VIDEO_PATTERNS = (("videos_api", 3), ("videos", 1))
 
-# Riqueza del CSV de sentimiento por proveedor: mistral/groq/gemini rellenan
+# Riqueza del CSV de sentimiento por proveedor: gemini/groq rellenan
 # todas las dimensiones (sesgo, arquetipo…); roberta solo 'sentiment'.
-SENTIMENT_PROVIDERS = (("mistral", 4), ("gemini", 3), ("groq", 2), ("roberta", 1))
+SENTIMENT_PROVIDERS = (("gemini", 3), ("groq", 2), ("roberta", 1))
 
 
 def _match_score(name: str, patterns) -> int:
@@ -428,6 +496,8 @@ class MenuApp(ctk.CTk):
         self._input_values: dict[str, dict[str, str]] = {}
         self._entries: dict[str, ctk.CTkEntry] = {}
         self._proj_preview: ctk.CTkLabel | None = None
+        self._account_file_cache = {}
+        self._last_result_dir = None
 
         self._restore_state()
         self._build_ui()
@@ -474,8 +544,8 @@ class MenuApp(ctk.CTk):
 
         self._theme_btn = util("🌙  Oscuro", self._toggle_theme,
                                "Alternar tema claro / oscuro", 112)
-        util("📂  Outputs", lambda: self._open(os.path.join(_project_root(), "outputs")),
-             "Abrir la carpeta de resultados generados")
+        util("📂  Datos", lambda: self._open(os.path.join(_project_root(), "data")),
+             "Abrir la carpeta de datos y resultados generados")
         util("➕  Nuevo proyecto", self._new_project,
              "Empezar una captura nueva: el proyecto lo nombra el scraper "
              "con la cuenta o los términos que busques", 158)
@@ -606,28 +676,35 @@ class MenuApp(ctk.CTk):
                              border_width=1, border_color=BORDER)
         panel.grid(row=0, column=1, sticky="nsew")
         panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(6, weight=1)
+        panel.grid_rowconfigure(0, weight=1)
+        panel.grid_rowconfigure(2, weight=0, minsize=130)
 
         pad = 26
+        # El formulario puede desplazarse; ejecutar, detener y actividad
+        # permanecen accesibles también en la ventana mínima de 1000 × 680.
+        self._detail_scroll = ctk.CTkScrollableFrame(panel, fg_color="transparent", corner_radius=0)
+        self._detail_scroll.grid(row=0, column=0, sticky="nsew", padx=12, pady=(12, 8))
+        self._detail_scroll.grid_columnconfigure(0, weight=1)
+        content = self._detail_scroll
 
-        self._breadcrumb = ctk.CTkLabel(panel, text="", font=_f(11, "bold"),
+        self._breadcrumb = ctk.CTkLabel(content, text="", font=_f(11, "bold"),
                                         text_color=ACCENT, anchor="w")
         self._breadcrumb.grid(row=0, column=0, sticky="w", padx=pad, pady=(20, 2))
 
-        self._title = ctk.CTkLabel(panel, text="", font=_f(24, "bold"),
+        self._title = ctk.CTkLabel(content, text="", font=_f(24, "bold"),
                                    text_color=TEXT, anchor="w")
         self._title.grid(row=1, column=0, sticky="w", padx=pad, pady=(0, 6))
 
-        self._help = ctk.CTkLabel(panel, text="", font=_f(12.5), text_color=MUTED,
+        self._help = ctk.CTkLabel(content, text="", font=_f(12.5), text_color=MUTED,
                                   anchor="w", justify="left", wraplength=560)
         self._help.grid(row=2, column=0, sticky="ew", padx=pad, pady=(0, 14))
 
         # Campos de entrada del paso (solo los tienen las acciones de captura)
-        self._inputs_holder = ctk.CTkFrame(panel, fg_color="transparent")
+        self._inputs_holder = ctk.CTkFrame(content, fg_color="transparent")
         self._inputs_holder.grid(row=3, column=0, sticky="ew", padx=pad)
 
         # Tarjeta de requisitos
-        self._req_card = ctk.CTkFrame(panel, fg_color=SURFACE_ALT, corner_radius=10)
+        self._req_card = ctk.CTkFrame(content, fg_color=SURFACE_ALT, corner_radius=10)
         self._req_card.grid(row=4, column=0, sticky="ew", padx=pad, pady=(0, 16))
         ctk.CTkLabel(self._req_card, text="REQUISITOS", font=_f(9, "bold"),
                      text_color=MUTED, anchor="w"
@@ -637,7 +714,7 @@ class MenuApp(ctk.CTk):
 
         # Acciones
         actions = ctk.CTkFrame(panel, fg_color="transparent")
-        actions.grid(row=5, column=0, sticky="ew", padx=pad, pady=(0, 16))
+        actions.grid(row=1, column=0, sticky="ew", padx=pad, pady=(0, 12))
 
         self._run_btn = ctk.CTkButton(actions, text="▶   Ejecutar",
                                       command=self._run_current,
@@ -666,7 +743,7 @@ class MenuApp(ctk.CTk):
 
         # Registro de actividad
         logbox = ctk.CTkFrame(panel, fg_color="transparent")
-        logbox.grid(row=6, column=0, sticky="nsew", padx=pad, pady=(0, 20))
+        logbox.grid(row=2, column=0, sticky="nsew", padx=pad, pady=(0, 20))
         logbox.grid_columnconfigure(0, weight=1)
         logbox.grid_rowconfigure(1, weight=1)
 
@@ -681,8 +758,14 @@ class MenuApp(ctk.CTk):
                       width=68, height=22, font=_f(10), corner_radius=6,
                       fg_color="transparent", border_width=1, border_color=BORDER,
                       text_color=MUTED, hover_color=SURFACE_ALT).pack(side="right")
+        self._result_btn = ctk.CTkButton(
+            head, text="Abrir descarga", command=self._open_download,
+            width=120, height=22, font=_f(10), corner_radius=6,
+            state="disabled", fg_color=ACCENT, hover_color=ACCENT_HOV)
+        self._result_btn.pack(side="right", padx=8)
 
         self._log = ctk.CTkTextbox(logbox, font=ctk.CTkFont(family="Consolas", size=11),
+                                   height=100,
                                    fg_color=SURFACE_ALT, text_color=TEXT,
                                    corner_radius=8, border_width=0, wrap="word",
                                    activate_scrollbars=True)
@@ -739,6 +822,7 @@ class MenuApp(ctk.CTk):
         self._save_state()
         self._refresh_rows()
         self._refresh_detail()
+        self._detail_scroll._parent_canvas.yview_moveto(0)
 
     def _refresh_rows(self):
         for act in ACTIONS:
@@ -789,7 +873,7 @@ class MenuApp(ctk.CTk):
 
         card = ctk.CTkFrame(self._inputs_holder, fg_color=SURFACE_ALT, corner_radius=10)
         card.pack(fill="x")
-        ctk.CTkLabel(card, text="PARÁMETROS DE LA BÚSQUEDA", font=_f(9, "bold"),
+        ctk.CTkLabel(card, text="PARÁMETROS DE LA DESCARGA" if act.get("relation_download") else "PARÁMETROS DE LA BÚSQUEDA", font=_f(9, "bold"),
                      text_color=MUTED, anchor="w"
                      ).pack(anchor="w", padx=14, pady=(10, 6))
 
@@ -802,21 +886,34 @@ class MenuApp(ctk.CTk):
 
         def make_entry(parent, spec, width=None):
             box = ctk.CTkFrame(parent, fg_color="transparent")
-            star = "  *" if spec["required"] else "   (opcional)"
+            star = "" if spec["kind"] == "choice" else ("  *" if spec["required"] else "   (opcional)")
             ctk.CTkLabel(box, text=spec["label"] + star, font=_f(11, "bold"),
                          text_color=TEXT, anchor="w").pack(anchor="w", pady=(0, 3))
             # Sin textvariable: CustomTkinter oculta el placeholder cuando el
             # campo está atado a uno, y el ejemplo de formato es justo lo que
             # hace falta ver en un campo vacío.
-            entry = ctk.CTkEntry(
-                box, placeholder_text=spec["placeholder"],
-                height=38, font=_f(13), corner_radius=8,
-                fg_color=SURFACE, border_color=BORDER, text_color=TEXT,
-                **({"width": width} if width else {}))
-            entry.pack(fill="x" if not width else "none", anchor="w")
-            previo = store.get(spec["flag"], "")
-            if previo:
-                entry.insert(0, previo)
+            control = ctk.CTkFrame(box, fg_color="transparent")
+            control.pack(fill="x")
+            if spec["kind"] == "choice":
+                entry = ctk.CTkOptionMenu(control, values=spec["choices"], height=36, font=_f(13),
+                    fg_color=ACCENT, button_color=ACCENT, button_hover_color=ACCENT_HOV)
+                previo = store.get(spec["flag"], spec["placeholder"])
+                entry.set(previo if previo in spec["choices"] else spec["placeholder"])
+                entry.configure(command=lambda _v, f=spec["flag"], w=entry: self._on_input_change(act["id"], f, w))
+                entry.pack(fill="x")
+            else:
+                entry = ctk.CTkEntry(
+                    control, placeholder_text=spec["placeholder"],
+                    height=38, font=_f(13), corner_radius=8,
+                    fg_color=SURFACE, border_color=BORDER, text_color=TEXT,
+                    **({"width": width} if width else {}))
+                entry.pack(side="left", fill="x" if not width else "none", expand=not width, anchor="w")
+                previo = store.get(spec["flag"], "")
+                if previo:
+                    entry.insert(0, previo)
+                if spec["kind"] in ("accounts_file", "csv_file"):
+                    ctk.CTkButton(control, text="Examinar…", width=110, height=38, font=_f(11),
+                        command=lambda w=entry, k=spec["kind"]: self._pick_accounts_file(act, w, k)).pack(side="right", padx=(8, 0))
             if spec["hint"]:
                 ctk.CTkLabel(box, text=spec["hint"], font=_f(10), text_color=MUTED,
                              anchor="w", justify="left", wraplength=520
@@ -866,6 +963,12 @@ class MenuApp(ctk.CTk):
             cuenta = store.get("--user", "").strip().lstrip("@")
             return f"user_{cuenta}" if cuenta else None
 
+        if rule == "relation_user":
+            try:
+                return "user_" + account_name(store.get("--user", ""))
+            except ValueError:
+                return None
+
         if rule == "terms":
             crudo = store.get("--query", "").strip()
             if not crudo:
@@ -884,6 +987,17 @@ class MenuApp(ctk.CTk):
     def _refresh_project_preview(self, act: dict):
         """Anuncia en qué carpeta acabarán los datos antes de lanzar nada."""
         if self._proj_preview is None:
+            return
+        if act.get("project_rule") == "relation_batch":
+            path = self._collect_inputs(act).get("--archivo", "").strip()
+            try:
+                source = self._read_account_file(path) if path else None
+                text = (f"{len(source.usernames)} cuentas distintas · {source.duplicates} duplicados omitidos.\n"
+                        "CSV por cuenta en data/user_<cuenta>/relaciones/; resumen en data/lotes_relaciones/."
+                        if source else "Selecciona un archivo para comprobar las cuentas antes de descargar.")
+            except ValueError:
+                text = "Corrige el archivo antes de descargar. No se ha iniciado ninguna cuenta."
+            self._proj_preview.configure(text=text, text_color=MUTED)
             return
         nombre = self._derived_project(act)
         if not nombre:
@@ -904,6 +1018,33 @@ class MenuApp(ctk.CTk):
     def _on_input_change(self, action_id: str, flag: str, entry):
         self._input_values.setdefault(action_id, {})[flag] = entry.get()
         self._refresh_buttons()
+
+    def _read_account_file(self, path):
+        try:
+            stat = os.stat(path)
+            key = (os.path.abspath(path), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            raise ValueError("No se puede leer el archivo de cuentas.") from None
+        if key not in self._account_file_cache:
+            self._account_file_cache = {key: read_accounts(path)}
+        return self._account_file_cache[key]
+
+    def _pick_accounts_file(self, act, entry, kind="accounts_file"):
+        from tkinter import filedialog
+        if kind == "csv_file":
+            filename = filedialog.askopenfilename(parent=self, title="Selecciona un CSV",
+                initialdir=self._project or None, filetypes=[("CSV", "*.csv")])
+        else:
+            filename = filedialog.askopenfilename(parent=self, title="Selecciona las cuentas de TikTok",
+                filetypes=[("Cuentas CSV/TXT", "*.csv *.txt"), ("CSV", "*.csv"), ("Texto", "*.txt")])
+        if filename:
+            entry.delete(0, "end")
+            entry.insert(0, filename)
+            self._on_input_change(act["id"], "--archivo", entry)
+
+    def _open_download(self):
+        if self._last_result_dir:
+            self._open(self._last_result_dir)
 
     @staticmethod
     def _valid_date(text: str) -> bool:
@@ -939,6 +1080,20 @@ class MenuApp(ctk.CTk):
                 continue
             if spec["kind"] == "date" and not self._valid_date(value):
                 return f"«{spec['label']}» debe tener el formato dd-mm-aaaa."
+            if spec["kind"] == "choice" and value not in spec["choices"]:
+                return f"Elige una opción válida en «{spec['label']}»."
+            if spec["kind"] == "nonnegative" and (not value.isascii() or not value.isdigit()):
+                return f"«{spec['label']}» debe ser un entero mayor o igual a 0."
+            if spec["kind"] == "accounts_file":
+                try:
+                    self._read_account_file(value)
+                except ValueError as exc:
+                    return str(exc)
+            if act.get("relation_download") and spec["flag"] == "--user":
+                try:
+                    account_name(value)
+                except ValueError:
+                    return "Introduce un usuario, @usuario o URL de perfil TikTok válida."
         return None
 
     def _render_requirements(self, act: dict):
@@ -1040,6 +1195,11 @@ class MenuApp(ctk.CTk):
         except queue.Empty:
             pass
         if pendientes:
+            if self._proc_action and self._proc_action.get("relation_download"):
+                for line in pendientes:
+                    if line.startswith("Salida: ") and os.path.isdir(line[8:]):
+                        self._last_result_dir = line[8:]
+                        self._result_btn.configure(state="normal")
             self._append(*pendientes)
 
     def _clear_log(self):
@@ -1123,13 +1283,24 @@ class MenuApp(ctk.CTk):
             # Consola propia: el script lee del teclado.
             kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
 
+        self._relation_control = None
         try:
+            if act.get("relation_download"):
+                self._relation_control = tempfile.TemporaryDirectory(prefix="tiktok_relaciones_")
+                self._cancel_file = Path(self._relation_control.name) / "detener"
+                cmd += ["--cancel-file", str(self._cancel_file)]
             self._proc = subprocess.Popen(cmd, cwd=_project_root(), **kwargs)
         except Exception as exc:
+            if self._relation_control:
+                self._relation_control.cleanup()
+                self._relation_control = None
             self._log_line(f"❌ No se pudo lanzar «{act['label']}»: {exc}")
             self._status("Error al lanzar el proceso.")
             return
 
+        if act.get("relation_download"):
+            self._last_result_dir = None
+            self._result_btn.configure(state="disabled")
         if capture:
             if self._proc.stdin:
                 self._proc.stdin.close()
@@ -1142,7 +1313,7 @@ class MenuApp(ctk.CTk):
         self._save_state()
         self._log_line(f"▶ {act['label']} — {os.path.basename(act['script'])}"
                        + (f"  ←  {os.path.basename(arg_path)}" if arg_path else ""))
-        self._status(f"Ejecutando «{act['label']}» en una ventana de consola aparte.")
+        self._status(f"Ejecutando «{act['label']}»" + (". Sigue el progreso en Actividad." if capture else " en una ventana de consola aparte."))
         self._refresh_rows()
         self._refresh_buttons()
         self._poll()
@@ -1167,6 +1338,9 @@ class MenuApp(ctk.CTk):
         self._drain_log()
 
         act = self._proc_action
+        if getattr(self, "_relation_control", None):
+            self._relation_control.cleanup()
+            self._relation_control = None
         elapsed = int(time.time() - self._t0)
         dur = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
         self._proc = None
@@ -1183,10 +1357,13 @@ class MenuApp(ctk.CTk):
         elif rc == 0:
             self._log_line(f"✅ {label} — completado en {dur}")
             self._status(f"«{label}» completado en {dur}.")
+        elif rc == 2 and act and act.get("relation_download"):
+            self._log_line(f"⚠ {label} — finalizado con observaciones en {dur}. Consulta el resumen de descarga.")
+            self._status("Descarga finalizada con diferencias, límites o cuentas no disponibles. Consulta el resumen.")
         else:
             self._log_line(f"❌ {label} — terminó con código {rc} tras {dur}")
             self._status(f"«{label}» terminó con errores (código {rc}). "
-                         "Revisa la ventana de consola.")
+                         "Revisa el registro de Actividad.")
 
         # Reescanear: el paso puede haber generado archivos nuevos.
         before = set(self._files)
@@ -1199,16 +1376,24 @@ class MenuApp(ctk.CTk):
             self._render_chips()
 
         if act and act.get("opens_report") and rc == 0:
-            self._open_report()
+            self._open_report(act)
 
         self._refresh_rows()
         self._refresh_detail()
+
+        if getattr(self, "_exit_after_download", False):
+            self._save_state()
+            self.destroy()
 
     def _stop_proc(self):
         if not self._busy():
             return
         self._stopping = True
         try:
+            if self._proc_action and self._proc_action.get("relation_download"):
+                self._cancel_file.write_text("detener", encoding="utf-8")
+                self._status("Deteniendo la descarga y guardando resultados; la petición en curso puede tardar hasta 20 segundos…")
+                return
             if os.name == "nt":
                 # /T mata también los nietos (Chromium de Playwright).
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
@@ -1220,21 +1405,29 @@ class MenuApp(ctk.CTk):
             self._stopping = False
             self._log_line(f"⚠ No se pudo detener el proceso: {exc}")
 
-    def _open_report(self):
+    def _open_report(self, act=None):
         """Localiza y abre el informe HTML recién generado."""
+        if act and act.get("opens_report") == "forense":
+            # El nombre depende del archivo elegido: se abre el _forense.html más reciente del proyecto.
+            carpeta = dir_informes(os.path.basename(os.path.normpath(self._project))) if self._project else ""
+            hay = sorted(Path(carpeta).glob("*_forense.html"), key=lambda p: p.stat().st_mtime) if carpeta and os.path.isdir(carpeta) else []
+            if hay:
+                ok, msg = open_path(str(hay[-1]))
+                self._log_line(("🌐 " if ok else "⚠ ") + msg)
+            else:
+                self._log_line("⚠ Informe generado; búscalo en la carpeta informes del proyecto.")
+            return
         videos = self._files.get("videos")
         if not videos:
             return
         base = os.path.splitext(os.path.basename(videos))[0]
-        proyecto_id = base.split("_videos")[0]
-        informe = os.path.join(_project_root(), "outputs", proyecto_id,
-                               "informes", f"{base}_informe.html")
+        informe = os.path.join(dir_informes(derivar_proyecto(base)), f"{base}_informe.html")
         if os.path.exists(informe):
             ok, msg = open_path(informe)
             self._log_line(("🌐 " if ok else "⚠ ") + msg)
         else:
             self._log_line("⚠ Informe generado pero no encontrado en la ruta esperada; "
-                           "ábrelo desde Outputs.")
+                           "ábrelo desde Datos.")
 
     def _open(self, path: str):
         ok, msg = open_path(path)
@@ -1434,6 +1627,9 @@ class MenuApp(ctk.CTk):
                 return
             if resp:
                 self._stop_proc()
+                if self._proc_action and self._proc_action.get("relation_download") and self._stopping:
+                    self._exit_after_download = True
+                    return
         if self._poll_job:
             try:
                 self.after_cancel(self._poll_job)

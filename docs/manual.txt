@@ -552,8 +552,7 @@ pain point, sarcasmo y ruido.
 
 Proveedores:
 - roberta -> pysentimiento (local, sin API key) · solo sentimiento
-- groq    -> llama-3.3-70b-versatile (100K tokens/dia gratis)
-- mistral -> open-mistral-nemo (1B tokens/mes gratis) · PRINCIPAL
+- groq    -> openai/gpt-oss-120b (8.000 tokens/min medido)
 
 Entrada:
 CSV de comentarios.
@@ -567,7 +566,7 @@ Salida:
 Funcionamiento:
 
 12.1. Carga de API key
-Busca MISTRAL_API_KEY (o GROQ_API_KEY) en config/.env.
+Busca GROQ_API_KEY (o GROQ_API_KEYS para rotar varias claves) en config/.env.
 
 12.2. Pre-filtro de ruido
 Marca stickers, solo-emoji y homonimos (config/taxonomia_ia.py) sin gastar tokens.
@@ -831,8 +830,8 @@ Dependencias tecnicas mas importantes del proyecto:
   Exportacion a GEXF.
 - pysentimiento
   Sentimiento local en espanol.
-- mistralai / groq
-  Sentimiento con IA (Mistral principal, Groq alternativa).
+- groq
+  Sentimiento con IA.
 - requests
   Consultas HTTP directas.
 

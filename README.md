@@ -42,7 +42,7 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 ---
 
 ### 2. Groq
-> Proporciona el modelo `llama-3.3-70b-versatile` (muy rápido, gratuito). Plan gratuito: 14.400 peticiones/día.
+> Proporciona el modelo `openai/gpt-oss-120b` (muy rápido, gratuito). Plan gratuito: 8.000 tokens/min medido.
 
 - **Crear cuenta:** https://console.groq.com
   - Pulsa **"Sign Up"** — puedes registrarte con Google
@@ -53,28 +53,15 @@ Necesitas cuenta en **4 plataformas**. Todas tienen plan gratuito suficiente par
 
 ---
 
-### 3. Mistral AI
-> Proporciona el modelo `open-mistral-nemo`. Plan gratuito: 1.000 millones de tokens/mes (≈ 3.000 análisis).
-
-- **Crear cuenta:** https://console.mistral.ai
-  - Pulsa **"Sign up"** — puedes registrarte con Google o GitHub
-- **Obtener API Key:** https://console.mistral.ai/api-keys
-  - Pulsa **"Create new key"**
-  - Copia la clave (empieza por `...`)
-  - ⚠️ Solo se muestra **una vez** — cópiala antes de cerrar
-
----
-
 ## 🔑 APIs que necesitas configurar
 
-Resumen de las 2 claves que necesitas:
+Resumen de la clave que necesitas:
 
 | API | Para qué sirve | Límite gratuito | URL para obtenerla |
 |---|---|---|---|
-| **MISTRAL_API_KEY** | Análisis de sentimiento (principal) | 1B tokens/mes | https://console.mistral.ai/api-keys |
-| **GROQ_API_KEY** | Análisis de sentimiento (rápido) | 14.400 req/día | https://console.groq.com/keys |
+| **GROQ_API_KEY** | Análisis de sentimiento | 8.000 tokens/min medido | https://console.groq.com/keys |
 
-> **¿Para qué sirven 2 APIs de sentimiento?** El sistema puede usar RoBERTa (local, sin internet) o un proveedor LLM. Para el análisis multidimensional se usa **Mistral** (principal); Groq queda como alternativa rápida. Si una falla o alcanza su límite, puedes cambiar a la otra.
+> **¿Hace falta una API para el sentimiento?** No: el sistema también puede usar RoBERTa (local, sin internet, sin API key), aunque solo clasifica sentimiento básico. Groq añade sesgo, arquetipo, intención y pain points, y admite varias claves separadas por coma (`GROQ_API_KEYS`) para rotar si una agota su cupo.
 
 ---
 
@@ -149,15 +136,17 @@ La primera vez que ejecutes el análisis de sentimiento, se descargará automát
 3. Copia y pega este contenido, sustituyendo los valores por tus claves reales:
 
 ```env
-MISTRAL_API_KEY=aquí_tu_clave_de_mistral
 GROQ_API_KEY=aquí_tu_clave_de_groq
 ```
 
-**Ejemplo real (con claves inventadas):**
+**Ejemplo real (con clave inventada):**
 ```env
-MISTRAL_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+> Si tienes varias claves de Groq, puedes rotarlas separándolas por coma en
+> `GROQ_API_KEYS=clave1,clave2,clave3` — se cambia de clave automáticamente
+> al agotar el cupo de una.
 
 > ⚠️ **Importante:** El archivo `.env` **nunca se sube a GitHub** (está en `.gitignore`). Tus claves son privadas y solo están en tu ordenador.
 
@@ -262,7 +251,7 @@ python src/analysis/analizar_sentimiento.py
 python src/visualization/generar_informe_html.py
 ```
 
-Los resultados se guardan en `outputs/nombre_cuenta/`.
+Los resultados se guardan en `data/nombre_cuenta/`, junto a los CSV de origen.
 
 ---
 
@@ -288,15 +277,14 @@ tiktok-scraper/
 │   ├── analysis/
 │   │   ├── analitica_publicaciones.py  ← +15 gráficas de rendimiento
 │   │   ├── analitica_comentarios.py    ← Nubes de palabras y análisis
-│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq+Mistral
+│   │   ├── analizar_sentimiento.py     ← Pipeline IA: RoBERTa+Groq
 │   │   └── comparativa_usuarios.py     ← Comparar múltiples cuentas
 │   │
 │   └── visualization/
 │       ├── generar_informe_html.py  ← Informe periodístico HTML autocontenido
 │       └── crear_gexf.py           ← Grafo de redes para Gephi
 │
-├── data/                            ← CSVs descargados (no se suben a GitHub)
-└── outputs/                         ← Gráficas e informes generados (no se suben)
+└── data/                            ← CSVs, gráficas e informes por proyecto (no se sube a GitHub)
 ```
 
 ---
@@ -307,20 +295,15 @@ Cada búsqueda (un usuario o un hashtag) es un **proyecto**. Todos sus datos y
 resultados se agrupan en una carpeta con el nombre del proyecto, para que nada se
 mezcle entre búsquedas distintas.
 
-**Datos descargados** — `data/{proyecto}/`:
+Todo — datos descargados y resultados generados — vive bajo `data/{proyecto}/`:
 ```
 data/
  └─ zapatero_zp_plus_ultra/
      ├─ zapatero_zp_plus_ultra_videos_api.csv                     ← vídeos
      ├─ ..._comentarios_api.csv                                   ← comentarios
-     ├─ ..._con_sentimiento_mistral.csv                           ← + análisis IA
-     └─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
-```
-
-**Resultados generados** — `outputs/{proyecto}/`:
-```
-outputs/
- └─ zapatero_zp_plus_ultra/
+     ├─ ..._con_sentimiento_groq.csv                              ← + análisis IA
+     ├─ ..._enriquecido_fechas_creacion.csv                       ← + datos de cuentas
+     ├─ Grafo/                             ← grafo de red (.gexf, para Gephi)
      ├─ informes/                          ← informe HTML final
      ├─ graficas_videos/
      │   └─ publicaciones/                 ← gráficas de rendimiento de vídeos
@@ -331,8 +314,8 @@ outputs/
          └─ polaridad_ia/                  ← sentimiento
 ```
 
-> **¿Tienes archivos de versiones anteriores sueltos en `data/`?** Ejecuta una vez
-> `python scripts/migrar_estructura.py` (muestra el plan) y luego
+> **¿Tienes archivos de versiones anteriores sueltos en `data/` o en `outputs/`?**
+> Ejecuta una vez `python scripts/migrar_estructura.py` (muestra el plan) y luego
 > `python scripts/migrar_estructura.py --aplicar` para reorganizarlo todo
 > automáticamente a esta estructura.
 
@@ -350,7 +333,7 @@ El scraping de datos públicos (perfiles públicos, hashtags públicos) es un á
 TikTok actualiza continuamente su web para dificultar el scraping. Si un scraper deja de funcionar, es probable que TikTok haya cambiado algo. Revisa los issues del repositorio para ver si hay una solución.
 
 **¿Dónde se guardan los datos?**
-Todo se guarda en local, en las carpetas `data/` y `outputs/`. Nada se sube a ningún servidor externo.
+Todo se guarda en local, en la carpeta `data/`. Nada se sube a ningún servidor externo.
 
 **El análisis de sentimiento da error la primera vez**
 Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine y vuelve a ejecutarlo.
@@ -365,7 +348,7 @@ Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine
 | Análisis de datos | Pandas, NumPy |
 | Gráficas | Matplotlib, Seaborn |
 | IA — Sentimiento local | pysentimiento (RoBERTa) |
-| IA — Sentimiento nube | RoBERTa / Groq / Mistral |
+| IA — Sentimiento nube | RoBERTa / Groq |
 | Nubes de palabras | WordCloud |
 | Grafos de redes | NetworkX → GEXF (Gephi) |
 | Interfaz gráfica | CustomTkinter |
@@ -374,3 +357,8 @@ Es normal — está descargando el modelo RoBERTa (~500MB). Espera a que termine
 ---
 
 *Desarrollado para periodismo de datos e investigación en redes sociales.*
+
+
+## Seguidores y seguidos
+
+En **1 · Captura**, usa **Seguidores y seguidos** para una cuenta o **Cuentas desde CSV/TXT** para un lote. Ambas opciones permiten elegir followers, following o ambas listas, validar la entrada, guardar CSV/GEXF y abrir el resumen de resultados. Deja el máximo vacío o en `0` para recorrer las páginas disponibles; los contadores y las diferencias quedan registrados. Consulta la [guía de relaciones](docs/RELACIONES_TIKTOK.md) para formatos, salidas y métodos alternativos.

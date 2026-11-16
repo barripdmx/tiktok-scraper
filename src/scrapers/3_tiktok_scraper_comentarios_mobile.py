@@ -43,7 +43,32 @@ except Exception:
 # ============================================================================
 BASE_DIR     = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR     = os.path.join(BASE_DIR, "data")
-COOKIES_PATH = os.path.join(DATA_DIR, "tiktok_cookies.json")
+
+
+def _resolve_cookies_path(base_dir):
+    """SEC-01: ubica la sesión en secrets/ (fuera de data/). Migra el legacy
+    con os.replace; si el move falla, devuelve la ruta legacy (fallback) para
+    no romper la autenticación. Equivalente a tiktok_utils.resolve_cookies_path."""
+    secrets_dir = os.path.join(base_dir, "secrets")
+    new_path = os.path.join(secrets_dir, "tiktok_cookies.json")
+    legacy_path = os.path.join(base_dir, "data", "tiktok_cookies.json")
+    try:
+        os.makedirs(secrets_dir, exist_ok=True)
+    except OSError:
+        return legacy_path if os.path.exists(legacy_path) else new_path
+    if os.path.exists(new_path):
+        return new_path
+    if os.path.exists(legacy_path):
+        try:
+            os.replace(legacy_path, new_path)
+            print(f"🔐 Sesión migrada a {new_path} (fuera de data/)")
+            return new_path
+        except OSError:
+            return legacy_path
+    return new_path
+
+
+COOKIES_PATH = _resolve_cookies_path(BASE_DIR)  # SEC-01: secrets/, no data/
 STORAGE_STATE_PATH = os.path.join(BASE_DIR, "drivers", "playwright_auth", "tiktok.json")
 PROFILE_DIR  = os.path.join(BASE_DIR, "drivers", "tiktok_profile")
 LOG_DIR      = os.path.join(DATA_DIR, "logs")
